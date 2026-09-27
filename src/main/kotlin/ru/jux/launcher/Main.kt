@@ -106,6 +106,7 @@ fun main(args: Array<String>) {
                 withContext(Dispatchers.IO) { runCatching { ClassArchives.removeStale() } }
             }
             LaunchedEffect(Unit) { state.checkForUpdates() }
+            LaunchedEffect(Unit) { state.refreshActivity() }
             LaunchedEffect(Unit) {
                 DiscordPresence.show(Presence.Launcher)
                 DiscordPresence.start()
@@ -119,6 +120,7 @@ fun main(args: Array<String>) {
                 Log.info("game exited with ${process.exitValue()}, showing the launcher again")
                 DiscordPresence.show(Presence.Launcher)
                 state.gameExited(process.exitValue())
+                state.refreshActivity()
                 shownDuringGame = false
                 gameProcess = null
             }

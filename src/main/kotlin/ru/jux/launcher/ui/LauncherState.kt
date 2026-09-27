@@ -439,6 +439,10 @@ class LauncherState(
         if (toast?.id == id) toast = null
     }
 
+    fun refreshActivity() {
+        scope.launch { loadActivity() }
+    }
+
     suspend fun loadActivity() {
         val roots = listOfNotNull(
             Paths.instances,
