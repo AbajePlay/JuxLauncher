@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.jux.launcher.core.NoticeLevel
+import ru.jux.launcher.launch.ArgumentBuilder
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDropdownMenu
@@ -148,7 +149,17 @@ private fun NavRail(state: LauncherState) {
             .background(JuxColors.Sidebar, shape)
             .padding(14.dp),
     ) {
-        Wordmark(164.dp, Modifier.padding(start = 12.dp, top = 12.dp, bottom = 26.dp))
+        Wordmark(164.dp, Modifier.padding(start = 12.dp, top = 12.dp))
+        Text(
+            "v${ArgumentBuilder.LAUNCHER_VERSION}",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = JuxColors.TextMuted,
+            modifier = Modifier
+                .padding(start = 12.dp, top = 8.dp, bottom = 22.dp)
+                .background(JuxColors.SurfaceHigh, PillShape)
+                .padding(horizontal = 9.dp, vertical = 3.dp),
+        )
 
         val notices by state.notices.collectAsState()
         val seen by state.noticesSeen.collectAsState()
