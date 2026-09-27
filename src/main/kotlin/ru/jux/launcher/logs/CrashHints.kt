@@ -15,6 +15,9 @@ object CrashHints {
         else "Игра закрылась с ошибкой (код $exitCode). Подробности — в логах."
     }
 
+    fun detail(logFile: Path?, loader: LoaderKind, versionId: String, exitCode: Int): String =
+        reason(logFile?.let(::tail).orEmpty(), loader, versionId) ?: "Код выхода $exitCode. Подробности — в логах."
+
     internal fun reason(log: String, loader: LoaderKind, versionId: String): String? = when {
         "Unsupported class file major version" in log && loader.isModded ->
             "${loader.label} пока не поддерживает Minecraft $versionId. " +

@@ -94,7 +94,6 @@ import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.PingState
 import ru.jux.launcher.ui.VersionEntry
 import ru.jux.launcher.ui.VersionGroup
-import ru.jux.launcher.ui.components.Banner
 import ru.jux.launcher.ui.components.ChoiceChip
 import ru.jux.launcher.ui.components.ContextMenuBox
 import ru.jux.launcher.ui.components.JuxDropdownMenu
@@ -118,19 +117,6 @@ import ru.jux.launcher.ui.theme.glow
 @Composable
 fun HomeScreen(state: LauncherState) {
     Column(Modifier.fillMaxSize().padding(JuxDimens.Gutter)) {
-        Banner(
-            state.error,
-            isError = true,
-            onDismiss = {
-                state.error = null
-                state.crashed = null
-            },
-            actionLabel = state.crashed?.let { "Логи" },
-            onAction = { state.crashed?.let { state.showLogs(it) } },
-        )
-        Banner(state.notice, isError = false, onDismiss = { state.notice = null })
-        if (state.error != null || state.notice != null) Spacer(Modifier.height(12.dp))
-
         QuickPlayCard(state)
         Spacer(Modifier.height(20.dp))
 
@@ -666,7 +652,7 @@ private fun ServerRow(state: LauncherState, server: ServerEntry) {
             JuxMenuItem("Копировать адрес", icon = JuxIcons.Copy, onClick = {
                 close()
                 runCatching { clipboard.setText(AnnotatedString(server.address)) }
-                    .onFailure { state.error = "Не удалось скопировать адрес: буфер обмена занят другой программой" }
+                    .onFailure { state.fail("Не удалось скопировать адрес: буфер обмена занят другой программой") }
             })
         },
     ) {

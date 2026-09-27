@@ -20,7 +20,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -35,7 +34,6 @@ import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.net.Downloader
 import ru.jux.launcher.ui.LauncherState
-import ru.jux.launcher.ui.components.Banner
 import ru.jux.launcher.ui.components.ChoiceChip
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxIcons
@@ -53,17 +51,10 @@ fun SettingsScreen(state: LauncherState) {
     val settings by Settings.state.collectAsState()
     val scroll = rememberScrollState()
 
-    LaunchedEffect(state.notice, state.error) {
-        if (state.notice != null || state.error != null) scroll.animateScrollTo(0)
-    }
-
     Column(
         Modifier.fillMaxSize().padding(JuxDimens.Gutter).verticalScroll(scroll),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Banner(state.error, isError = true, onDismiss = { state.error = null })
-        Banner(state.notice, isError = false, onDismiss = { state.notice = null })
-
         MemoryPanel(settings)
 
         Panel(Modifier.fillMaxWidth()) {
@@ -191,7 +182,7 @@ private fun DownloadsPanel(state: LauncherState, settings: LauncherSettings) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 JuxButton("Сбросить кэш проверки", onClick = {
                     VerifyCache.clear()
-                    state.notice = "Кэш проверки сброшен — следующий запуск заново пересчитает хеши всех файлов"
+                    state.inform("Кэш проверки сброшен — следующий запуск заново пересчитает хеши всех файлов")
                 })
                 JuxButton("Открыть папку лаунчера", icon = JuxIcons.Folder, onClick = { state.openFolder(Paths.root) })
                 JuxButton("Лог лаунчера", icon = JuxIcons.Log, onClick = { state.showLogs(null, LogSource.LAUNCHER) })

@@ -59,9 +59,19 @@ object ModCompat {
         return ModMeta(id, root.text("name") ?: id, version, provides, breaks)
     }
 
+    fun conflictsAmong(mods: List<ModMeta>): List<Conflict> =
+        mods.indices.flatMap { i -> conflicts(mods[i], mods.subList(i + 1, mods.size)) }
+
+    fun conflictsIn(dir: Path): List<Conflict> = conflictsAmong(enabledIn(dir))
+
     fun conflicts(candidate: ModMeta, others: Collection<ModMeta>): List<Conflict> =
-        others.filter { it.id != candidate.id && (breaks(candidate, it) || breaks(it, candidate)) }
-            .map { Conflict(candidate, it) }
+        others.filter { it.id != candidate.id }.mapNotNull { other ->
+            when {
+                breaks(candidate, other) -> Conflict(candidate, other)
+                breaks(other, candidate) -> Conflict(other, candidate)
+                else -> null
+            }
+        }
 
     private fun breaks(mod: ModMeta, target: ModMeta): Boolean =
         (target.provides + target.id).any { id ->

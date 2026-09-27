@@ -28,6 +28,7 @@ data class InstanceOptions(
     val boostMods: List<ManagedMod> = emptyList(),
     val boostMissing: List<String> = emptyList(),
     val boostCheckedAt: Long = 0,
+    val blockedUpdates: List<String> = emptyList(),
 )
 
 object InstanceStore {

@@ -22,10 +22,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenuItem
@@ -53,21 +56,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDropdownMenu
 import ru.jux.launcher.ui.components.JuxMenuItem
 import ru.jux.launcher.ui.components.MenuDivider
+import ru.jux.launcher.ui.components.NoticeToast
 import ru.jux.launcher.ui.components.ReportOpen
 import ru.jux.launcher.ui.components.ThinProgress
 import ru.jux.launcher.ui.components.Wordmark
 import ru.jux.launcher.ui.dialogs.ModalHost
 import ru.jux.launcher.ui.screens.AccountsScreen
 import ru.jux.launcher.ui.screens.HomeScreen
+import ru.jux.launcher.ui.screens.NoticesScreen
 import ru.jux.launcher.ui.screens.SettingsScreen
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
@@ -85,6 +94,10 @@ fun App(state: LauncherState, onGameStarted: (Process) -> Unit) {
                 ScreenHost(state)
             }
         }
+        NoticeToast(
+            state,
+            Modifier.align(Alignment.BottomEnd).padding(end = JuxDimens.Gutter + 8.dp, bottom = JuxDimens.Gutter + 8.dp),
+        )
         ModalHost(state)
     }
 }
@@ -113,6 +126,7 @@ private fun ScreenHost(state: LauncherState) {
     ) { screen ->
         when (screen) {
             Screen.HOME -> HomeScreen(state)
+            Screen.NOTICES -> NoticesScreen(state)
             Screen.SETTINGS -> SettingsScreen(state)
             Screen.ACCOUNTS -> AccountsScreen(state)
         }
@@ -133,8 +147,19 @@ private fun NavRail(state: LauncherState) {
     ) {
         Wordmark(164.dp, Modifier.padding(start = 12.dp, top = 12.dp, bottom = 26.dp))
 
+        val notices by state.notices.collectAsState()
+        val seen by state.noticesSeen.collectAsState()
+        val unread = notices.filter { it.id > seen }
+
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NavItem("Играть", Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
+            NavItem(
+                "Уведомления",
+                Icons.Default.Notifications,
+                state.screen == Screen.NOTICES,
+                badge = unread.size,
+                badgeAlert = unread.any { it.level == NoticeLevel.ERROR },
+            ) { state.openNotices() }
             NavItem("Настройки", Icons.Default.Settings, state.screen == Screen.SETTINGS) { state.screen = Screen.SETTINGS }
         }
 
@@ -146,7 +171,14 @@ private fun NavRail(state: LauncherState) {
 }
 
 @Composable
-private fun NavItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+private fun NavItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    badge: Int = 0,
+    badgeAlert: Boolean = false,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
 
@@ -183,18 +215,46 @@ private fun NavItem(label: String, icon: ImageVector, selected: Boolean, onClick
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = content,
-            modifier = Modifier.size(20.dp),
-        )
+        Box {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = content,
+                modifier = Modifier.size(20.dp),
+            )
+            if (badge > 0) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 8.dp, y = (-7).dp)
+                        .defaultMinSize(minWidth = 17.dp)
+                        .height(17.dp)
+                        .clip(PillShape)
+                        .background(if (badgeAlert) JuxColors.Danger else JuxColors.Accent)
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (badge > 99) "99+" else badge.toString(),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        color = if (badgeAlert) JuxColors.Background else JuxColors.OnAccent,
+                        style = TextStyle(
+                            lineHeight = 10.sp,
+                            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+                        ),
+                    )
+                }
+            }
+        }
         Spacer(Modifier.width(12.dp))
         Text(
             label,
             style = MaterialTheme.typography.titleMedium,
             color = content,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
         )
     }
 }

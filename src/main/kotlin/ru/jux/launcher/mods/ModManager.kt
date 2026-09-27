@@ -46,6 +46,9 @@ object ModManager {
 
     private const val DISABLED = ".disabled"
     private const val DEPENDENCY_DEPTH = 4
+    private const val FIX_ROUNDS = 4
+    private const val FIX_CANDIDATES = 6
+    private const val BLOCKED_LIMIT = 50
 
     private class Hashed(val size: Long, val modified: Long, val sha1: String)
 
@@ -87,13 +90,15 @@ object ModManager {
             } else {
                 emptyMap()
             }
-            val boost = InstanceStore.get(gameDir).boostMods.map { it.fileName }.toSet()
+            val options = InstanceStore.get(gameDir)
+            val boost = options.boostMods.map { it.fileName }.toSet()
+            val blocked = options.blockedUpdates.toSet()
 
             files.map { file ->
                 val sha1 = sums.getValue(file)
                 val version = versions[sha1]
                 val project = version?.let { projects[it.projectId] }
-                val newer = updates[sha1]
+                val newer = updates[sha1]?.takeIf { it.id !in blocked }
                 val enabled = file.name.endsWith(".jar")
                 InstalledMod(
                     file = file,
@@ -163,6 +168,7 @@ object ModManager {
             added.forEach { runCatching { it.deleteIfExists() } }
             throw IncompatibleModException(conflicts, "не стал ставить, чтобы игра не упала")
         }
+        clearBlocked(gameDir)
         val titles = remote("installed titles") { Modrinth.titles(chosen.keys) }.orEmpty()
         Log.info("mods installed into $dir: ${tasks.joinToString { it.dest.name }}")
         chosen.keys.map { titles[it] ?: it }
@@ -182,6 +188,9 @@ object ModManager {
                 .orEmpty()
             if (conflicts.isNotEmpty()) {
                 download.deleteIfExists()
+                gameDirOf(mod)?.let { dir ->
+                    InstanceStore.update(dir) { it.copy(blockedUpdates = (it.blockedUpdates + version.id).distinct().takeLast(BLOCKED_LIMIT)) }
+                }
                 throw IncompatibleModException(conflicts, "оставил прежнюю версию")
             }
         }
@@ -189,7 +198,76 @@ object ModManager {
             Files.move(download, target, StandardCopyOption.REPLACE_EXISTING)
             if (target != mod.file) mod.file.deleteIfExists()
         }
+        gameDirOf(mod)?.let(::clearBlocked)
         Log.info("mod updated: ${mod.fileName} -> ${target.name}")
+    }
+
+    suspend fun fixConflicts(
+        gameDir: Path,
+        kind: LoaderKind,
+        gameVersion: String,
+        onProgress: (DownloadProgress) -> Unit = {},
+    ): List<String> = withContext(Dispatchers.IO) {
+        val dir = modsDir(gameDir)
+        val changes = ArrayList<String>()
+        val rejected = ArrayList<String>()
+        try {
+            repeat(FIX_ROUNDS) {
+                val jars = dir.listDirectoryEntries("*.jar").mapNotNull { jar -> ModCompat.read(jar)?.let { jar to it } }
+                val conflict = ModCompat.conflictsAmong(jars.map { it.second }).firstOrNull() ?: return@withContext changes
+                changes += replaceOneSide(conflict, jars, kind, gameVersion, rejected, onProgress)
+                    ?: throw IOException("${conflict.text}. Подходящей версии на Modrinth нет — выключи один из них в «Моды»")
+            }
+            if (ModCompat.conflictsIn(dir).isNotEmpty()) throw IOException("Не получилось развести все моды — выключи лишние в «Моды»")
+            changes
+        } finally {
+            if (rejected.isNotEmpty()) {
+                InstanceStore.update(gameDir) { options ->
+                    options.copy(blockedUpdates = (options.blockedUpdates + rejected).distinct().takeLast(BLOCKED_LIMIT))
+                }
+            }
+        }
+    }
+
+    private suspend fun replaceOneSide(
+        conflict: Conflict,
+        jars: List<Pair<Path, ModMeta>>,
+        kind: LoaderKind,
+        gameVersion: String,
+        rejected: MutableList<String>,
+        onProgress: (DownloadProgress) -> Unit,
+    ): String? {
+        val sides = listOf(conflict.mod, conflict.other).mapNotNull { meta -> jars.firstOrNull { it.second == meta } }
+        val known = Modrinth.versionsByHash(sides.map { hashOf(it.first) })
+        val ordered = sides.mapNotNull { side -> known[hashOf(side.first)]?.let { side to it } }
+            .sortedBy { (_, version) -> if (version.versionType == "release") 1 else 0 }
+        val loaders = loadersFor(kind)
+        for ((side, current) in ordered) {
+            val (jar, meta) = side
+            val others = jars.filter { it.first != jar }.map { it.second }
+            val candidates = Modrinth.versions(current.projectId, loaders, gameVersion)
+                .filter { it.versionType == "release" && it.id != current.id }
+                .take(FIX_CANDIDATES)
+            for (candidate in candidates) {
+                val file = candidate.primaryFile ?: continue
+                val name = PerformancePack.safeFileName(file.filename) ?: continue
+                val download = jar.resolveSibling("$name.download")
+                Downloader().run(listOf(DownloadTask(file.url, download, file.sha1, file.size, label = name)), onProgress)
+                val fresh = ModCompat.read(download)
+                if (fresh == null || ModCompat.conflicts(fresh, others).isNotEmpty()) {
+                    download.deleteIfExists()
+                    rejected += candidate.id
+                    continue
+                }
+                val target = jar.resolveSibling(name)
+                Files.move(download, target, StandardCopyOption.REPLACE_EXISTING)
+                if (target != jar) jar.deleteIfExists()
+                rejected += current.id
+                Log.info("mod conflict fixed: ${jar.name} -> ${target.name}")
+                return "${meta.name} ${meta.shortVersion} → ${fresh.shortVersion}"
+            }
+        }
+        return null
     }
 
     private suspend fun stableUpdates(
@@ -228,10 +306,19 @@ object ModManager {
         val base = mod.fileName.removeSuffix(DISABLED)
         val target = mod.file.resolveSibling(if (enabled) base else base + DISABLED)
         locked(mod) { Files.move(mod.file, target, StandardCopyOption.REPLACE_EXISTING) }
+        gameDirOf(mod)?.let(::clearBlocked)
     }
 
     fun remove(mod: InstalledMod) {
         locked(mod) { mod.file.deleteIfExists() }
+        gameDirOf(mod)?.let(::clearBlocked)
+    }
+
+    private fun gameDirOf(mod: InstalledMod): Path? = mod.file.parent?.parent
+
+    private fun clearBlocked(gameDir: Path) {
+        if (InstanceStore.get(gameDir).blockedUpdates.isEmpty()) return
+        InstanceStore.update(gameDir) { it.copy(blockedUpdates = emptyList()) }
     }
 
     fun count(gameDir: Path): Int = runCatching {

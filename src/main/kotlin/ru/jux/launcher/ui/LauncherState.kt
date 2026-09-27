@@ -23,6 +23,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.auth.AccountManager
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.Notice
+import ru.jux.launcher.core.NoticeAction
+import ru.jux.launcher.core.NoticeLevel
+import ru.jux.launcher.core.Notices
 import ru.jux.launcher.core.PlayRequest
 import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Preloader
@@ -41,6 +45,8 @@ import ru.jux.launcher.meta.LoaderSupport
 import ru.jux.launcher.meta.ManifestVersion
 import ru.jux.launcher.meta.VersionKind
 import ru.jux.launcher.meta.VersionManifest
+import ru.jux.launcher.mods.ModCompat
+import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.servers.ServerEntry
@@ -52,7 +58,7 @@ import ru.jux.launcher.update.Updater
 import java.io.IOException
 import java.nio.file.Path
 
-enum class Screen { HOME, SETTINGS, ACCOUNTS }
+enum class Screen { HOME, NOTICES, SETTINGS, ACCOUNTS }
 
 data class VersionEntry(
     val version: ManifestVersion,
@@ -122,9 +128,14 @@ class LauncherState(
     var signInStage by mutableStateOf("")
         private set
 
-    var error by mutableStateOf<String?>(null)
-    var notice by mutableStateOf<String?>(null)
-    var crashed by mutableStateOf<VersionEntry?>(null)
+    var toast by mutableStateOf<Notice?>(null)
+        private set
+
+    val notices = Notices.items
+    val noticesSeen = Notices.seen
+
+    var seenBeforeOpen by mutableStateOf(0L)
+        private set
 
     var modal by mutableStateOf<Modal?>(null)
 
@@ -171,7 +182,7 @@ class LauncherState(
                 selectEntry(VersionEntry(version, request.loader))
                 pendingPlay = true
             } else {
-                error = "Версии ${request.versionId} из ярлыка нет в списке Mojang"
+                fail("Версии ${request.versionId} из ярлыка нет в списке Mojang")
             }
         }
     }
@@ -183,7 +194,7 @@ class LauncherState(
         loaderSupport = preloaded.loaderSupport
         selectStartingEntry(preloaded.manifest.latest.release)
         expandedGroups = setOfNotNull(groups().firstOrNull()?.key)
-        if (versions.isEmpty()) error = NO_VERSIONS
+        if (versions.isEmpty()) fail(NO_VERSIONS)
     }
 
     private fun refreshInBackground(refreshVersions: Boolean, refreshLoaders: Boolean) {
@@ -218,7 +229,7 @@ class LauncherState(
         if (wasEmpty) {
             selectStartingEntry(fresh.latest.release)
             expandedGroups = setOfNotNull(groups().firstOrNull()?.key)
-            if (error == NO_VERSIONS) error = null
+            toast?.takeIf { it.text == NO_VERSIONS }?.let { dismissToast(it.id) }
         }
         return true
     }
@@ -335,8 +346,6 @@ class LauncherState(
         if (busy) return
         val token = Any()
         jobToken = token
-        error = null
-        notice = null
         busy = true
         busyEntry = entry
         stage = ""
@@ -349,7 +358,7 @@ class LauncherState(
             } catch (e: Throwable) {
                 if (jobToken === token) {
                     Log.error("$what failed", e)
-                    error = e.message ?: e::class.simpleName ?: "Неизвестная ошибка"
+                    fail(e.message ?: e::class.simpleName, entry, title = FAIL_TITLES[what])
                 }
             } finally {
                 if (jobToken === token) finishJob()
@@ -380,20 +389,103 @@ class LauncherState(
         if (exitCode == 0) return
         val (entry, logFile) = lastLaunch ?: return
         Log.warn("game exited with code $exitCode")
-        error = CrashHints.explain(logFile, entry.loader, entry.id, exitCode)
-        crashed = entry
+        val actions = buildList {
+            add(NoticeAction.LOGS)
+            when {
+                !entry.loader.isModded -> Unit
+                hasModConflicts(entry) -> add(NoticeAction.FIX_MODS)
+                else -> add(NoticeAction.MODS)
+            }
+        }
+        fail(CrashHints.detail(logFile, entry.loader, entry.id, exitCode), entry, "Игра закрылась с ошибкой", actions)
+    }
+
+    private fun hasModConflicts(entry: VersionEntry): Boolean =
+        runCatching { ModCompat.conflictsIn(ModManager.modsDir(gameDirOf(entry))).isNotEmpty() }.getOrDefault(false)
+
+    fun fail(
+        text: String?,
+        entry: VersionEntry? = null,
+        title: String? = null,
+        actions: List<NoticeAction> = emptyList(),
+    ) = post(NoticeLevel.ERROR, text ?: "Неизвестная ошибка", title, entry, actions)
+
+    fun inform(
+        text: String,
+        entry: VersionEntry? = null,
+        title: String? = null,
+        level: NoticeLevel = NoticeLevel.SUCCESS,
+    ) = post(level, text, title, entry, emptyList())
+
+    private fun post(level: NoticeLevel, text: String, title: String?, entry: VersionEntry?, actions: List<NoticeAction>) {
+        val (notice, repeated) = Notices.post(level, text, title, entry?.key, entry?.label, actions)
+        when {
+            screen == Screen.NOTICES -> Notices.markSeen()
+            !repeated || level == NoticeLevel.ERROR -> toast = notice
+        }
+    }
+
+    fun dismissToast(id: Long) {
+        if (toast?.id == id) toast = null
+    }
+
+    fun openNotices() {
+        toast = null
+        if (screen != Screen.NOTICES) seenBeforeOpen = Notices.seen.value
+        screen = Screen.NOTICES
+        Notices.markSeen()
+    }
+
+    fun removeNotice(notice: Notice) {
+        Notices.remove(notice.id)
+        dismissToast(notice.id)
+    }
+
+    fun clearNotices() {
+        Notices.clear()
+        toast = null
+    }
+
+    fun runAction(notice: Notice, action: NoticeAction) {
+        dismissToast(notice.id)
+        val entry = notice.entryKey?.let(::entryByKey)
+        when (action) {
+            NoticeAction.LOGS -> showLogs(entry)
+            NoticeAction.MODS -> entry?.let { modal = Modal.Mods(it) }
+            NoticeAction.FIX_MODS -> entry?.let { fixMods(it, notice) }
+            NoticeAction.PLAY_ANYWAY -> entry?.let {
+                Notices.resolve(notice.id)
+                selectEntry(it)
+                play(skipModCheck = true)
+            }
+        }
+    }
+
+    fun fixMods(entry: VersionEntry, source: Notice? = null) {
+        startJob(entry, "fix mods") {
+            stageChanged("Подбираю совместимые версии модов")
+            val changes = try {
+                ModManager.fixConflicts(gameDirOf(entry), entry.loader, entry.id) { progress = it }
+            } catch (e: IOException) {
+                fail(e.message, entry, "Моды не исправлены", listOf(NoticeAction.MODS))
+                return@startJob
+            }
+            source?.let { Notices.resolve(it.id) }
+            modsChanged(entry)
+            inform(changes.joinToString("\n").ifEmpty { "Несовместимых модов не нашлось" }, entry, "Моды исправлены")
+        }
     }
 
     fun consumePendingPlay(): Boolean = pendingPlay.also { pendingPlay = false }
 
-    fun play(serverAddress: String? = null) {
+    fun play(serverAddress: String? = null, skipModCheck: Boolean = false) {
         if (busy) return
         val versionId = selectedVersionId ?: run {
-            error = "Выберите версию"
+            fail("Выберите версию")
             return
         }
         val account = selectedAccount.value ?: run {
-            error = "Добавьте аккаунт"
+            fail("Добавьте аккаунт")
             screen = Screen.ACCOUNTS
             return
         }
@@ -401,6 +493,20 @@ class LauncherState(
         val entry = currentEntry()
 
         startJob(entry, "launch") {
+            if (!skipModCheck && entry != null && entry.loader.isModded) {
+                val conflicts = withContext(Dispatchers.IO) {
+                    runCatching { ModCompat.conflictsIn(ModManager.modsDir(gameDirOf(entry))) }.getOrDefault(emptyList())
+                }
+                if (conflicts.isNotEmpty()) {
+                    fail(
+                        conflicts.take(3).joinToString("\n") { it.text },
+                        entry,
+                        "Игра не запущена: моды несовместимы",
+                        listOf(NoticeAction.FIX_MODS, NoticeAction.PLAY_ANYWAY),
+                    )
+                    return@startJob
+                }
+            }
             val notices = ArrayList<String>()
             val result = GameLauncher.launch(
                 versionId = versionId,
@@ -412,7 +518,7 @@ class LauncherState(
                 onNotice = { notices += it },
             )
             Settings.update { it.copy(lastVersionId = versionId, lastLoader = loader.name) }
-            if (notices.isNotEmpty()) notice = notices.joinToString("\n")
+            notices.forEach { inform(it, entry, level = NoticeLevel.INFO) }
             refreshInstalled()
             entry?.let(::instanceChanged)
             lastLaunch = entry?.let { it to result.logFile }
@@ -422,16 +528,16 @@ class LauncherState(
 
     fun playFromShortcut(request: PlayRequest, gameRunning: Boolean) {
         val version = versions.firstOrNull { it.id == request.versionId } ?: run {
-            error = "Версии ${request.versionId} из ярлыка нет в списке Mojang"
+            fail("Версии ${request.versionId} из ярлыка нет в списке Mojang")
             return
         }
         if (busy) {
-            error = "Сначала дождитесь окончания загрузки ${busyEntry?.label.orEmpty()}".trimEnd()
+            fail("Сначала дождитесь окончания загрузки ${busyEntry?.label.orEmpty()}".trimEnd())
             return
         }
         val entry = VersionEntry(version, request.loader)
         selectEntry(entry)
-        if (gameRunning) notice = "Игра уже запущена. ${entry.label} выбрана — запустите её, когда закончите" else play()
+        if (gameRunning) inform("Игра уже запущена. ${entry.label} выбрана — запустите её, когда закончите", entry, level = NoticeLevel.INFO) else play()
     }
 
     fun playOnServer(server: ServerEntry) {
@@ -458,13 +564,13 @@ class LauncherState(
             )
             refreshInstalled()
             instanceChanged(entry)
-            notice = (listOf("${entry.label} переустановлена") + notices).joinToString("\n")
+            inform((listOf("${entry.label} переустановлена") + notices).joinToString("\n"), entry)
         }
     }
 
     fun delete(entry: VersionEntry, withGameDir: Boolean) {
         if (busy && busyEntry == entry) {
-            error = "Сначала дождитесь окончания загрузки ${entry.label}"
+            fail("Сначала дождитесь окончания загрузки ${entry.label}", entry)
             return
         }
         scope.launch {
@@ -476,16 +582,18 @@ class LauncherState(
             } catch (e: IOException) {
                 refreshInstalled()
                 instanceChanged(entry)
-                error = e.message
+                fail(e.message, entry)
                 return@launch
             }
             refreshInstalled()
             instanceChanged(entry)
-            notice = when {
-                !withGameDir -> "Файлы ${entry.label} удалены, миры и настройки на месте"
-                trashed -> "${entry.label} удалена, папка сборки в корзине"
-                else -> "${entry.label} удалена вместе с папкой сборки"
-            }
+            inform(
+                when {
+                    !withGameDir -> "Файлы ${entry.label} удалены, миры и настройки на месте"
+                    trashed -> "${entry.label} удалена, папка сборки в корзине"
+                    else -> "${entry.label} удалена вместе с папкой сборки"
+                },
+            )
         }
     }
 
@@ -506,7 +614,7 @@ class LauncherState(
         instanceChanged(entry)
     }
 
-    fun openFolder(dir: Path) = Shell.openFolder(dir) { error = it }
+    fun openFolder(dir: Path) = Shell.openFolder(dir) { fail(it) }
 
     fun showLogs(entry: VersionEntry?, source: LogSource = LogSource.GAME) {
         modal = Modal.Logs(entry?.let(::gameDirOf), entry?.label ?: "JuxLauncher", source)
@@ -517,8 +625,8 @@ class LauncherState(
             runCatching {
                 withContext(Dispatchers.IO) { Shortcuts.createOnDesktop("Minecraft ${entry.label}", entry.id, entry.loader) }
             }
-                .onSuccess { notice = "Ярлык «${it.fileName.toString().removeSuffix(".lnk")}» на рабочем столе" }
-                .onFailure { error = it.message }
+                .onSuccess { inform("Ярлык «${it.fileName.toString().removeSuffix(".lnk")}» на рабочем столе", entry) }
+                .onFailure { fail(it.message, entry) }
         }
     }
 
@@ -552,21 +660,20 @@ class LauncherState(
         scope.launch {
             runCatching { Updater.install(update) }
                 .onSuccess { onQuit() }
-                .onFailure { if (it !is CancellationException) error = it.message }
+                .onFailure { if (it !is CancellationException) fail(it.message, title = "Обновление не установилось") }
         }
     }
 
     fun signInMicrosoft() {
         if (signingIn) return
         signingIn = true
-        error = null
         scope.launch {
             runCatching { AccountManager.signInMicrosoft { signInStage = it } }
-                .onSuccess { notice = "Вход выполнен: ${it.name}" }
+                .onSuccess { inform("Вход выполнен: ${it.name}") }
                 .onFailure { failure ->
                     if (failure !is CancellationException) {
                         Log.error("microsoft sign-in failed", failure)
-                        error = failure.message ?: "Вход не удался"
+                        fail(failure.message ?: "Вход не удался", title = "Вход через Microsoft")
                     }
                 }
             signingIn = false
@@ -577,8 +684,7 @@ class LauncherState(
     fun addOffline(nickname: String): String? =
         runCatching { AccountManager.addOffline(nickname) }.fold(
             onSuccess = {
-                notice = "Добавлен офлайн-аккаунт ${it.name}"
-                error = null
+                inform("Добавлен офлайн-аккаунт ${it.name}")
                 null
             },
             onFailure = { it.message ?: "Не получилось добавить аккаунт" },
@@ -635,6 +741,11 @@ class LauncherState(
     }
 
     private companion object {
+        val FAIL_TITLES = mapOf(
+            "launch" to "Игра не запустилась",
+            "reinstall" to "Переустановка не удалась",
+            "fix mods" to "Моды не исправлены",
+        )
         const val NO_VERSIONS = "Не удалось получить список версий. Проверьте интернет и перезапустите лаунчер."
     }
 }

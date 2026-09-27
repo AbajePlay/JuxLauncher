@@ -44,6 +44,7 @@ object Preloader {
         withContext(Dispatchers.IO) { runCatching { Settings.load() } }
         onStep(0.25f, opening)
         withContext(Dispatchers.IO) { runCatching { AccountManager.load() } }
+        withContext(Dispatchers.IO) { runCatching { Notices.load() } }
         onStep(0.40f, opening)
         withContext(Dispatchers.IO) { runCatching { VerifyCache.load() } }
 

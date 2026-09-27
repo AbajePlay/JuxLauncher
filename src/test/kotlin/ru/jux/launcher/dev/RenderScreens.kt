@@ -7,6 +7,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
+import ru.jux.launcher.core.NoticeAction
+import ru.jux.launcher.core.NoticeLevel
+import ru.jux.launcher.core.Notices
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.ui.App
@@ -25,6 +28,7 @@ fun main(args: Array<String>) {
     val out = File(args.firstOrNull() ?: "build/preview").apply { mkdirs() }
     val scale = args.getOrNull(1)?.toFloatOrNull() ?: 1.25f
 
+    Notices.file = null
     val preloaded = runBlocking { Preloader.run { _, _ -> } }
         .copy(manifestStale = false, loaderSupportStale = false)
     val state = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded)
@@ -52,8 +56,33 @@ fun main(args: Array<String>) {
     }
 
     render("splash", 520, 180) { JuxTheme { SplashContent(0.7f, "Подтягиваю загрузчики модов") } }
+
+    val sample = state.currentEntry()
+    val day = 24L * 60 * 60 * 1000
+    val now = System.currentTimeMillis()
+    Notices.post(
+        NoticeLevel.ERROR, "Игре не хватило памяти. Добавь памяти в настройках сборки.", "Игра закрылась с ошибкой",
+        sample?.key, sample?.label, listOf(NoticeAction.LOGS, NoticeAction.MODS), now = now - day - 3_600_000,
+    )
+    Notices.post(NoticeLevel.SUCCESS, "Вход выполнен: Abaje", now = now - day)
+    Notices.post(
+        NoticeLevel.INFO, "Для ${sample?.id} модов FPS-буста пока нет. Игра запущена без него.", null,
+        sample?.key, sample?.label, now = now - 7_200_000,
+    )
+    Notices.post(NoticeLevel.INFO, "Для ${sample?.id} модов FPS-буста пока нет. Игра запущена без него.", null, sample?.key, sample?.label, now = now - 3_600_000)
+    Notices.post(NoticeLevel.SUCCESS, "Sodium 0.8.15-beta.1 → 0.8.12", "Моды исправлены", sample?.key, sample?.label, now = now - 60_000)
+    Notices.markSeen()
+    state.fail(
+        "Sodium 0.8.15-beta.1 несовместим с Iris 1.10.7",
+        sample,
+        "Игра не запущена: моды несовместимы",
+        listOf(NoticeAction.FIX_MODS, NoticeAction.PLAY_ANYWAY),
+    )
+    render("home-toast", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
+    state.toast?.let { state.dismissToast(it.id) }
+
     for (screen in Screen.entries) {
-        state.screen = screen
+        if (screen == Screen.NOTICES) state.openNotices() else state.screen = screen
         render(screen.name.lowercase(), 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     }
 

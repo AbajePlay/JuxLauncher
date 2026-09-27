@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import ru.jux.launcher.auth.Account
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.SkinHead
-import ru.jux.launcher.ui.components.Banner
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxTextField
@@ -68,9 +67,6 @@ fun AccountsScreen(state: LauncherState) {
         Modifier.fillMaxSize().padding(JuxDimens.Gutter).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Banner(state.error, isError = true, onDismiss = { state.error = null })
-        Banner(state.notice, isError = false, onDismiss = { state.notice = null })
-
         Panel(Modifier.fillMaxWidth()) {
             Column {
                 SectionTitle("Лицензионный вход")
