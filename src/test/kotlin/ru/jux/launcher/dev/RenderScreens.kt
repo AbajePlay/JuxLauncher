@@ -14,6 +14,8 @@ import ru.jux.launcher.core.Notices
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.logs.LogSource
+import ru.jux.launcher.online.OnlineCount
+import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.ui.App
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
@@ -40,6 +42,7 @@ fun main(args: Array<String>) {
     val preloaded = runBlocking { Preloader.run { _, _ -> } }
         .copy(manifestStale = false, loaderSupportStale = false)
     val state = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded)
+    OnlineCounter.show(OnlineCount(online = 128, playing = 47))
 
     fun render(name: String, width: Int, height: Int, content: @Composable () -> Unit) {
         val scene = ImageComposeScene(

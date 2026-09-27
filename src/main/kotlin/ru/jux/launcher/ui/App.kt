@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.launch.ArgumentBuilder
+import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDropdownMenu
@@ -191,6 +193,7 @@ private fun NavRail(state: LauncherState) {
         Spacer(Modifier.weight(1f))
 
         UpdateCard(state)
+        OnlineLine()
         AccountSwitcher(state)
     }
 }
@@ -281,6 +284,41 @@ private fun NavItem(
             modifier = Modifier.weight(1f),
             maxLines = 1,
         )
+    }
+}
+
+@Composable
+private fun OnlineLine() {
+    val count by OnlineCounter.count.collectAsState()
+    val current = count ?: return
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            Modifier.padding(top = 8.dp).size(10.dp).clip(CircleShape).background(JuxColors.Success.copy(alpha = 0.22f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(JuxColors.Success))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                "${current.online} онлайн",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = JuxColors.TextSoft,
+                maxLines = 1,
+            )
+            if (current.playing > 0) {
+                Text(
+                    "${current.playing} в игре",
+                    fontSize = 11.sp,
+                    color = JuxColors.TextMuted,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 

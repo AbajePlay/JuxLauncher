@@ -31,7 +31,6 @@ import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.SettingsDefaults
 import ru.jux.launcher.core.VerifyCache
-import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.net.Downloader
 import ru.jux.launcher.ui.LauncherState
@@ -57,18 +56,6 @@ fun SettingsScreen(state: LauncherState) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         MemoryPanel(settings)
-
-        Panel(Modifier.fillMaxWidth()) {
-            Column {
-                SectionTitle("Запуск")
-                LabeledRow("Показывать игру в Discord") {
-                    JuxSwitch(settings.discordPresence) { checked ->
-                        Settings.update { it.copy(discordPresence = checked) }
-                        DiscordPresence.refresh()
-                    }
-                }
-            }
-        }
 
         Panel(Modifier.fillMaxWidth()) {
             Column {

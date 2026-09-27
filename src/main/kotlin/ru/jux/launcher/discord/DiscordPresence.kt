@@ -16,7 +16,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import ru.jux.launcher.core.Log
-import ru.jux.launcher.core.Settings
 import java.io.IOException
 
 sealed interface Presence {
@@ -57,17 +56,13 @@ object DiscordPresence {
         wake.value++
     }
 
-    fun refresh() {
-        wake.value++
-    }
-
     private suspend fun CoroutineScope.loop() {
         var ipc: DiscordIpc? = null
         var shown: Presence? = null
         var warned = false
         while (isActive) {
             val seen = wake.value
-            val target = desired.value?.takeIf { Settings.current.discordPresence }
+            val target = desired.value
             try {
                 when {
                     target == null && ipc != null -> {

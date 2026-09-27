@@ -31,6 +31,7 @@ import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.discord.Presence
 import ru.jux.launcher.net.Http
+import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.ui.App
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.SplashContent
@@ -107,6 +108,7 @@ fun main(args: Array<String>) {
             }
             LaunchedEffect(Unit) { state.checkForUpdates() }
             LaunchedEffect(Unit) { state.refreshActivity() }
+            LaunchedEffect(Unit) { OnlineCounter.start() }
             LaunchedEffect(Unit) {
                 DiscordPresence.show(Presence.Launcher)
                 DiscordPresence.start()
@@ -119,6 +121,7 @@ fun main(args: Array<String>) {
                 withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
                 Log.info("game exited with ${process.exitValue()}, showing the launcher again")
                 DiscordPresence.show(Presence.Launcher)
+                OnlineCounter.setPlaying(false)
                 state.gameExited(process.exitValue())
                 state.refreshActivity()
                 shownDuringGame = false

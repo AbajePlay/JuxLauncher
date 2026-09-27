@@ -58,6 +58,7 @@ import ru.jux.launcher.meta.VersionManifest
 import ru.jux.launcher.mods.ModCompat
 import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.PerformancePack
+import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.servers.ServerEntry
 import ru.jux.launcher.servers.ServerPing
@@ -556,6 +557,7 @@ class LauncherState(
                 startedAt = System.currentTimeMillis(),
             )
             DiscordPresence.show(playing)
+            OnlineCounter.setPlaying(true)
             watchGame(result.process, result.logFile, playing)
             onGameStarted(result.process)
         }
