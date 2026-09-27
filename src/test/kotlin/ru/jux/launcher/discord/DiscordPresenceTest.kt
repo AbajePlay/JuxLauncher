@@ -21,8 +21,8 @@ class DiscordPresenceTest {
         assertEquals(DiscordPresence.LOGO, activity["assets"]!!.jsonObject.text("large_image"))
         assertFalse("timestamps" in activity)
         val buttons = activity["buttons"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(listOf("Скачать JuxLauncher", "Что за лаунчер"), buttons.map { it.text("label") })
-        assertEquals(listOf(DiscordPresence.DOWNLOAD_URL, DiscordPresence.PAGE_URL), buttons.map { it.text("url") })
+        assertEquals(listOf(DiscordPresence.DOWNLOAD_LABEL), buttons.map { it.text("label") })
+        assertEquals(listOf("https://juxmc.ru/launcher/"), buttons.map { it.text("url") })
         assertTrue(buttons.all { it.text("label").length <= 32 })
     }
 
@@ -35,9 +35,9 @@ class DiscordPresenceTest {
         assertEquals("21 мод", activity.text("state"))
         assertEquals(1_790_000_000L, activity["timestamps"]!!.jsonObject["start"]!!.jsonPrimitive.long)
         val assets = activity["assets"]!!.jsonObject
-        assertEquals(DiscordPresence.GAME, assets.text("large_image"))
-        assertEquals(DiscordPresence.LOGO, assets.text("small_image"))
-        assertEquals(2, activity["buttons"]!!.jsonArray.size)
+        assertEquals(DiscordPresence.LOGO, assets.text("large_image"))
+        assertFalse("small_image" in assets)
+        assertEquals(1, activity["buttons"]!!.jsonArray.size)
     }
 
     @Test

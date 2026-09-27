@@ -139,6 +139,6 @@ class ArgumentBuilder(
 
     companion object {
         const val LAUNCHER_NAME = "JuxLauncher"
-        const val LAUNCHER_VERSION = "1.4.0"
+        const val LAUNCHER_VERSION = "1.4.1"
     }
 }

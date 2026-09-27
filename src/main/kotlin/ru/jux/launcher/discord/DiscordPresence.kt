@@ -35,11 +35,10 @@ object DiscordPresence {
 
     const val APP_ID = "1553784416487346326"
 
-    const val DOWNLOAD_URL = "https://juxmc.ru/launcher/download/"
+    const val DOWNLOAD_LABEL = "⬇ Скачать JuxLauncher"
     const val PAGE_URL = "https://juxmc.ru/launcher/"
     private const val ART = "https://raw.githubusercontent.com/AbajePlay/JuxLauncher/main/branding/presence"
     const val LOGO = "$ART/logo.png"
-    const val GAME = "$ART/game.png"
 
     private const val RETRY_MILLIS = 15_000L
 
@@ -116,20 +115,14 @@ object DiscordPresence {
                 put("state", stateOf(presence))
                 putJsonObject("timestamps") { put("start", presence.startedAt / 1000) }
                 putJsonObject("assets") {
-                    put("large_image", GAME)
-                    put("large_text", "Minecraft ${presence.versionId}")
-                    put("small_image", LOGO)
-                    put("small_text", "JuxLauncher")
+                    put("large_image", LOGO)
+                    put("large_text", "Minecraft ${presence.versionId} через JuxLauncher")
                 }
             }
         }
         putJsonArray("buttons") {
             addJsonObject {
-                put("label", "Скачать JuxLauncher")
-                put("url", DOWNLOAD_URL)
-            }
-            addJsonObject {
-                put("label", "Что за лаунчер")
+                put("label", DOWNLOAD_LABEL)
                 put("url", PAGE_URL)
             }
         }
