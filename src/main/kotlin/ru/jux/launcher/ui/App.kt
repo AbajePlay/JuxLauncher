@@ -150,16 +150,26 @@ private fun NavRail(state: LauncherState) {
             .padding(14.dp),
     ) {
         Wordmark(164.dp, Modifier.padding(start = 12.dp, top = 12.dp))
-        Text(
-            "v${ArgumentBuilder.LAUNCHER_VERSION}",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = JuxColors.TextMuted,
-            modifier = Modifier
+        Box(
+            Modifier
                 .padding(start = 12.dp, top = 8.dp, bottom = 22.dp)
+                .height(20.dp)
                 .background(JuxColors.SurfaceHigh, PillShape)
-                .padding(horizontal = 9.dp, vertical = 3.dp),
-        )
+                .padding(horizontal = 9.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "v${ArgumentBuilder.LAUNCHER_VERSION}",
+                color = JuxColors.TextMuted,
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 11.sp,
+                    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+                ),
+                modifier = Modifier.offset(y = (-1).dp),
+            )
+        }
 
         val notices by state.notices.collectAsState()
         val seen by state.noticesSeen.collectAsState()
