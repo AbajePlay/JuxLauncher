@@ -16,6 +16,7 @@ import javax.swing.JOptionPane
 import kotlin.system.exitProcess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.ClassArchives
 import ru.jux.launcher.core.Log
@@ -124,7 +125,15 @@ fun main(args: Array<String>) {
 
             if (gameProcess == null || shownDuringGame) {
                 Window(
-                    onCloseRequest = { shutdownAndExit() },
+                    onCloseRequest = {
+                        if (gameProcess?.isAlive == true) {
+                            Log.info("window closed while the game runs, staying in the background")
+                            shownDuringGame = false
+                            scope.launch { MemoryRelease.afterWindowClosed() }
+                        } else {
+                            shutdownAndExit()
+                        }
+                    },
                     title = "JuxLauncher",
                     state = windowState,
                     onPreviewKeyEvent = { state.onKey(it) },
