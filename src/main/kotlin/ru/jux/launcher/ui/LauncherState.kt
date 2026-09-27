@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.activity.ActivityStats
@@ -41,6 +42,8 @@ import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.discord.DiscordPresence
+import ru.jux.launcher.discord.GameEvent
+import ru.jux.launcher.discord.GameEvents
 import ru.jux.launcher.discord.Presence
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.instance.InstanceStore
@@ -541,16 +544,38 @@ class LauncherState(
             refreshInstalled()
             entry?.let(::instanceChanged)
             lastLaunch = entry?.let { it to result.logFile }
-            DiscordPresence.show(
-                Presence.Playing(
-                    versionId = versionId,
-                    loaderLabel = loader.takeIf { it.isModded }?.label,
-                    server = serverAddress?.let { address -> servers.firstOrNull { it.address == address }?.name ?: address },
-                    mods = if (loader.isModded) ModManager.count(Settings.gameDir(versionId, loader)) else 0,
-                    startedAt = System.currentTimeMillis(),
-                ),
+            val playing = Presence.Playing(
+                versionId = versionId,
+                loaderLabel = loader.takeIf { it.isModded }?.label,
+                server = serverAddress?.let(GameEvents::display),
+                mods = if (loader.isModded) ModManager.count(Settings.gameDir(versionId, loader)) else 0,
+                startedAt = System.currentTimeMillis(),
             )
+            DiscordPresence.show(playing)
+            watchGame(result.process, result.logFile, playing)
             onGameStarted(result.process)
+        }
+    }
+
+    private fun watchGame(process: Process, logFile: Path, start: Presence.Playing) {
+        scope.launch(Dispatchers.IO) {
+            val tail = GameEvents.Tail(logFile)
+            var shown = start
+            while (process.isAlive) {
+                delay(GAME_LOG_POLL_MILLIS)
+                var next = shown
+                tail.lines().forEach { line ->
+                    when (val event = GameEvents.parse(line)) {
+                        is GameEvent.JoinedServer -> next = next.copy(server = event.address)
+                        GameEvent.Singleplayer -> next = next.copy(server = null)
+                        null -> Unit
+                    }
+                }
+                if (next != shown && process.isAlive) {
+                    shown = next
+                    DiscordPresence.show(next)
+                }
+            }
         }
     }
 
@@ -764,6 +789,7 @@ class LauncherState(
     }
 
     private companion object {
+        const val GAME_LOG_POLL_MILLIS = 2_000L
         val FAIL_TITLES = mapOf(
             "launch" to "Игра не запустилась",
             "reinstall" to "Переустановка не удалась",
