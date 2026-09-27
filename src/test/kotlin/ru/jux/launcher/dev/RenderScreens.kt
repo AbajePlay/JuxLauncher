@@ -63,6 +63,7 @@ fun main(args: Array<String>) {
         entry?.let { "dialog-instance" to Modal.InstanceSettings(it) },
         entry?.let { "dialog-delete" to Modal.Delete(it) },
         entry?.let { "dialog-logs" to Modal.Logs(state.gameDirOf(it), it.label, LogSource.GAME) },
+        entry?.takeIf { it.loader.isModded }?.let { "dialog-mods" to Modal.Mods(it) },
     )
     for ((name, modal) in dialogs) {
         state.modal = modal

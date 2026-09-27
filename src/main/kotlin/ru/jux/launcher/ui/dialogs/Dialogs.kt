@@ -3,7 +3,6 @@ package ru.jux.launcher.ui.dialogs
 import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +46,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.io.path.exists
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,7 +75,7 @@ import ru.jux.launcher.ui.components.formatBytes
 import ru.jux.launcher.ui.components.formatMemory
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
-import kotlin.io.path.exists
+import ru.jux.launcher.ui.theme.PillShape
 
 @Composable
 fun ModalHost(state: LauncherState) {
@@ -354,9 +354,8 @@ private fun LogDialog(state: LauncherState, modal: Modal.Logs) {
             Modifier
                 .fillMaxWidth()
                 .height(340.dp)
-                .clip(RoundedCornerShape(JuxDimens.CornerMedium))
-                .background(JuxColors.Background)
-                .border(1.dp, JuxColors.Outline, RoundedCornerShape(JuxDimens.CornerMedium)),
+                .clip(RoundedCornerShape(JuxDimens.CornerCard))
+                .background(JuxColors.Background),
         ) {
             val shown = lines
             when {
@@ -384,7 +383,7 @@ private fun LogDialog(state: LauncherState, modal: Modal.Logs) {
                         style = ScrollbarStyle(
                             minimalHeight = 24.dp,
                             thickness = 6.dp,
-                            shape = RoundedCornerShape(3.dp),
+                            shape = PillShape,
                             hoverDurationMillis = 250,
                             unhoverColor = JuxColors.Text.copy(alpha = 0.18f),
                             hoverColor = JuxColors.Text.copy(alpha = 0.40f),

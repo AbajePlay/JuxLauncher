@@ -71,6 +71,8 @@ import ru.jux.launcher.ui.screens.HomeScreen
 import ru.jux.launcher.ui.screens.SettingsScreen
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
+import ru.jux.launcher.ui.theme.PillShape
+import ru.jux.launcher.ui.theme.softShadow
 import ru.jux.launcher.update.UpdateState
 
 @Composable
@@ -119,18 +121,19 @@ private fun ScreenHost(state: LauncherState) {
 
 @Composable
 private fun NavRail(state: LauncherState) {
+    val shape = RoundedCornerShape(JuxDimens.CornerLarge)
     Column(
         Modifier
-            .width(196.dp)
+            .padding(start = JuxDimens.Gutter, top = JuxDimens.Gutter, bottom = JuxDimens.Gutter)
+            .width(224.dp)
             .fillMaxHeight()
-            .background(JuxColors.Surface)
-            .padding(12.dp),
+            .softShadow(shape)
+            .background(JuxColors.Sidebar, shape)
+            .padding(14.dp),
     ) {
-        Wordmark(156.dp, Modifier.padding(horizontal = 8.dp, vertical = 15.dp))
+        Wordmark(164.dp, Modifier.padding(start = 12.dp, top = 12.dp, bottom = 26.dp))
 
-        Spacer(Modifier.height(8.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NavItem("Играть", Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
             NavItem("Настройки", Icons.Default.Settings, state.screen == Screen.SETTINGS) { state.screen = Screen.SETTINGS }
         }
@@ -149,63 +152,49 @@ private fun NavItem(label: String, icon: ImageVector, selected: Boolean, onClick
 
     val background by animateColorAsState(
         targetValue = when {
-            selected -> JuxColors.Accent.copy(alpha = 0.14f)
+            selected -> JuxColors.AccentSoft
             hovered -> JuxColors.SurfaceHigh
             else -> Color.Transparent
         },
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "navBackground",
     )
     val content by animateColorAsState(
         targetValue = when {
             selected -> JuxColors.Accent
             hovered -> JuxColors.Text
-            else -> JuxColors.TextMuted
+            else -> JuxColors.TextSoft
         },
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "navContent",
-    )
-    val markerHeight by animateDpAsState(
-        targetValue = if (selected) 18.dp else 0.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "navMarker",
     )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(40.dp)
-            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
+            .height(48.dp)
+            .clip(PillShape)
             .background(background)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
             )
-            .padding(end = 12.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(12.dp), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(markerHeight)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(JuxColors.Accent)
-            )
-        }
         Icon(
             icon,
             contentDescription = null,
             tint = content,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(20.dp),
         )
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             label,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.titleMedium,
             color = content,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
         )
     }
 }
@@ -220,9 +209,9 @@ private fun AccountSwitcher(state: LauncherState) {
     val onAccounts = state.screen == Screen.ACCOUNTS
     val background by animateColorAsState(
         when {
-            onAccounts -> JuxColors.Accent.copy(alpha = 0.14f)
-            hovered || open -> JuxColors.SurfaceHigh
-            else -> Color.Transparent
+            onAccounts -> JuxColors.AccentSoft
+            hovered || open -> JuxColors.Outline
+            else -> JuxColors.SurfaceHigh
         },
         animationSpec = tween(200, easing = FastOutSlowInEasing),
         label = "accountBackground",
@@ -234,16 +223,16 @@ private fun AccountSwitcher(state: LauncherState) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(JuxDimens.CornerMedium))
+                .clip(RoundedCornerShape(JuxDimens.CornerCard))
                 .background(background)
                 .clickable(interactionSource = interaction, indication = null) {
                     if (accounts.isEmpty()) state.screen = Screen.ACCOUNTS else open = true
                 }
-                .padding(8.dp),
+                .padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SkinHead(account, 32.dp)
-            Spacer(Modifier.width(10.dp))
+            SkinHead(account, 40.dp)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     account?.name ?: "Добавить аккаунт",
@@ -315,9 +304,9 @@ private fun UpdateCard(state: LauncherState) {
         Modifier
             .fillMaxWidth()
             .padding(bottom = 8.dp)
-            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
+            .clip(RoundedCornerShape(JuxDimens.CornerCard))
             .background(JuxColors.SurfaceHigh)
-            .padding(12.dp),
+            .padding(14.dp),
     ) {
         when (current) {
             is UpdateState.Available -> {

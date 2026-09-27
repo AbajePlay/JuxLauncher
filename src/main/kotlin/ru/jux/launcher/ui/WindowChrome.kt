@@ -33,9 +33,9 @@ object WindowChrome {
                 dwm.set(hwnd, USE_IMMERSIVE_DARK_MODE_LEGACY, 1)
             }
 
-            dwm.set(hwnd, CAPTION_COLOR, colorRef(JuxColors.Surface.toArgbInt()))
+            dwm.set(hwnd, CAPTION_COLOR, colorRef(JuxColors.Background.toArgbInt()))
             dwm.set(hwnd, TEXT_COLOR, colorRef(JuxColors.Text.toArgbInt()))
-            dwm.set(hwnd, BORDER_COLOR, colorRef(JuxColors.Outline.toArgbInt()))
+            dwm.set(hwnd, BORDER_COLOR, colorRef(JuxColors.Background.toArgbInt()))
             Log.debug("dark window chrome applied")
         }.onFailure { Log.debug("window chrome unavailable: ${it.message}") }
     }

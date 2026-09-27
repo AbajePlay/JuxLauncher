@@ -2,10 +2,10 @@ package ru.jux.launcher.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import ru.jux.launcher.launch.ArgumentBuilder
 import ru.jux.launcher.ui.components.Wordmark
 import ru.jux.launcher.ui.theme.JuxColors
+import ru.jux.launcher.ui.theme.JuxDimens
+import ru.jux.launcher.ui.theme.PillShape
 
 @Composable
 fun SplashContent(fraction: Float, status: String) {
@@ -48,10 +50,10 @@ fun SplashContent(fraction: Float, status: String) {
     Box(
         Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(JuxDimens.CornerLarge))
             .background(JuxColors.Surface)
-            .border(1.dp, JuxColors.Outline, RoundedCornerShape(18.dp))
-            .padding(22.dp),
+            .border(1.dp, JuxColors.Outline.copy(alpha = 0.6f), RoundedCornerShape(JuxDimens.CornerLarge))
+            .padding(26.dp),
     ) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
             Row {
@@ -109,14 +111,14 @@ private fun SplashBar(fraction: Float) {
         Modifier
             .fillMaxWidth()
             .height(8.dp)
-            .clip(RoundedCornerShape(4.dp))
+            .clip(PillShape)
             .background(JuxColors.SurfaceHigh)
     ) {
         Box(
             Modifier
                 .fillMaxHeight()
                 .fillMaxWidth(fraction)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(PillShape)
                 .background(
                     Brush.horizontalGradient(
                         0f to JuxColors.AccentPressed,

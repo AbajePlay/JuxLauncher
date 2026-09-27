@@ -132,7 +132,7 @@ fun SkinHead(account: Account?, size: Dp, modifier: Modifier = Modifier) {
     Box(
         modifier
             .size(size)
-            .clip(RoundedCornerShape(size * 0.22f))
+            .clip(RoundedCornerShape(size * 0.32f))
             .background(JuxColors.SurfaceHigh),
         contentAlignment = Alignment.Center,
     ) {

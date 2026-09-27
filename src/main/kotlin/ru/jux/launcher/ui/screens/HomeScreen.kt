@@ -3,11 +3,13 @@ package ru.jux.launcher.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -20,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -68,12 +71,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.io.path.exists
 import kotlinx.coroutines.delay
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.Shortcuts
@@ -106,7 +112,8 @@ import ru.jux.launcher.ui.components.formatReleaseDate
 import ru.jux.launcher.ui.components.formatSpeed
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
-import kotlin.io.path.exists
+import ru.jux.launcher.ui.theme.PillShape
+import ru.jux.launcher.ui.theme.glow
 
 @Composable
 fun HomeScreen(state: LauncherState) {
@@ -125,9 +132,9 @@ fun HomeScreen(state: LauncherState) {
         if (state.error != null || state.notice != null) Spacer(Modifier.height(12.dp))
 
         QuickPlayCard(state)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
 
-        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             Panel(Modifier.weight(1f).fillMaxHeight()) {
                 Column {
                     ListHeader(state)
@@ -152,23 +159,23 @@ private fun QuickPlayCard(state: LauncherState) {
     val installed = entry != null && state.isEntryInstalled(entry)
 
     Panel(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("К ЗАПУСКУ", style = MaterialTheme.typography.labelSmall, color = JuxColors.TextMuted)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(10.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Text(
                         entry?.id ?: "версия не выбрана",
-                        style = MaterialTheme.typography.displaySmall,
+                        style = if (entry == null) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayMedium,
                         color = if (entry == null) JuxColors.TextMuted else JuxColors.Text,
                     )
-                    if (entry != null && entry.loader.isModded) Tag(entry.loader.label, JuxColors.Accent)
+                    if (entry != null && entry.loader.isModded) Tag(entry.loader.label, loaderColor(entry.loader))
                 }
                 if (entry != null) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(16.dp))
                     InstanceChips(state, entry)
                 }
             }
@@ -188,25 +195,43 @@ private fun QuickPlayCard(state: LauncherState) {
 
 @Composable
 private fun PlayButton(installed: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val scale by animateFloatAsState(
+        when {
+            pressed && enabled -> 0.96f
+            hovered && enabled -> 1.02f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "playScale",
+    )
+    val glow by animateDpAsState(if (hovered && enabled) 30.dp else 20.dp, label = "playGlow")
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(JuxDimens.CornerMedium),
+        shape = PillShape,
+        interactionSource = interaction,
         colors = ButtonDefaults.buttonColors(
             containerColor = JuxColors.Accent,
             contentColor = JuxColors.OnAccent,
             disabledContainerColor = JuxColors.SurfaceHigh,
             disabledContentColor = JuxColors.TextMuted,
         ),
-        contentPadding = PaddingValues(horizontal = 28.dp),
-        modifier = Modifier.defaultMinSize(minWidth = 200.dp).height(56.dp),
+        contentPadding = PaddingValues(horizontal = 32.dp),
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .then(if (enabled) Modifier.glow(PillShape, JuxColors.Accent.copy(alpha = 0.55f), glow) else Modifier)
+            .defaultMinSize(minWidth = 260.dp)
+            .height(72.dp),
     ) {
-        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(26.dp))
+        Spacer(Modifier.width(10.dp))
         Text(
             if (installed) "Играть" else "Установить и играть",
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Black,
+            fontSize = if (installed) 20.sp else 17.sp,
             maxLines = 1,
         )
     }
@@ -392,8 +417,8 @@ private fun progressDetails(progress: DownloadProgress?): String = when {
 private fun ProgressBar(fraction: Float) {
     val animated by animateFloatAsState(if (fraction < 0f) 0f else fraction, label = "progress")
     BoxWithConstraints(
-        Modifier.fillMaxWidth().height(6.dp)
-            .clip(RoundedCornerShape(3.dp))
+        Modifier.fillMaxWidth().height(8.dp)
+            .clip(PillShape)
             .background(JuxColors.SurfaceHigh)
     ) {
         if (fraction < 0f) {
@@ -407,14 +432,14 @@ private fun ProgressBar(fraction: Float) {
                 Modifier.fillMaxHeight()
                     .width(maxWidth * 0.35f)
                     .offset(x = maxWidth * sweep)
-                    .clip(RoundedCornerShape(3.dp))
+                    .clip(PillShape)
                     .background(JuxColors.Accent)
             )
         } else {
             Box(
                 Modifier.fillMaxHeight()
                     .fillMaxWidth(animated)
-                    .clip(RoundedCornerShape(3.dp))
+                    .clip(PillShape)
                     .background(JuxColors.Accent)
             )
         }
@@ -525,14 +550,14 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
         when {
-            selected -> JuxColors.Accent.copy(alpha = 0.12f)
+            selected -> JuxColors.AccentSoft
             hovered -> JuxColors.SurfaceHigh
             else -> Color.Transparent
         },
-        animationSpec = tween(120),
+        animationSpec = tween(160),
         label = "rowBackground",
     )
-    val dotSize by animateDpAsState(if (installed) 6.dp else 0.dp, label = "installedDot")
+    val dotSize by animateDpAsState(if (installed) 7.dp else 0.dp, label = "installedDot")
 
     val requester = remember { BringIntoViewRequester() }
     LaunchedEffect(selected, state.keyboardMoves) {
@@ -557,16 +582,17 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
                     state.selectEntry(entry)
                     if (clicks.isSecondClick(entry.key)) state.play()
                 }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(Modifier.size(6.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(7.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(dotSize).clip(CircleShape).background(JuxColors.Accent))
             }
             Text(
                 entry.id,
                 style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
                 color = if (selected) JuxColors.Accent else JuxColors.Text,
             )
             Tag(entry.loader.label, loaderColor(entry.loader))
@@ -581,11 +607,11 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
 }
 
 private fun loaderColor(kind: LoaderKind) = when (kind) {
-    LoaderKind.FABRIC -> JuxColors.Info
-    LoaderKind.QUILT -> JuxColors.Accent
-    LoaderKind.FORGE -> JuxColors.Warning
-    LoaderKind.NEOFORGE -> JuxColors.Danger
-    LoaderKind.VANILLA -> JuxColors.TextMuted
+    LoaderKind.FABRIC -> JuxColors.LoaderFabric
+    LoaderKind.QUILT -> JuxColors.LoaderQuilt
+    LoaderKind.FORGE -> JuxColors.LoaderForge
+    LoaderKind.NEOFORGE -> JuxColors.LoaderNeoForge
+    LoaderKind.VANILLA -> JuxColors.LoaderVanilla
 }
 
 @Composable
@@ -606,13 +632,16 @@ private fun ServersPanel(state: LauncherState, modifier: Modifier) {
                     color = JuxColors.TextMuted,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = { state.refreshServers() }, modifier = Modifier.size(28.dp)) {
+                IconButton(
+                    onClick = { state.refreshServers() },
+                    modifier = Modifier.size(32.dp).clip(CircleShape).background(JuxColors.SurfaceHigh),
+                ) {
                     Icon(Icons.Default.Refresh, "Обновить", tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(14.dp))
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(state.servers, key = { it.address }) { server -> ServerRow(state, server) }
             }
         }
@@ -645,31 +674,35 @@ private fun ServerRow(state: LauncherState, server: ServerEntry) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(JuxDimens.CornerMedium))
-                    .background(if (hovered) JuxColors.SurfaceHigh else Color.Transparent)
+                    .clip(RoundedCornerShape(JuxDimens.CornerCard))
+                    .background(if (hovered) JuxColors.Outline else JuxColors.SurfaceHigh)
                     .hoverable(interaction)
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 ServerIcon(online?.favicon)
                 Column(Modifier.weight(1f)) {
                     Text(
                         server.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         color = JuxColors.Text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     StatusLine(ping)
                 }
-                IconButton(onClick = { state.playOnServer(server) }, enabled = !state.busy, modifier = Modifier.size(32.dp)) {
+                IconButton(
+                    onClick = { state.playOnServer(server) },
+                    enabled = !state.busy,
+                    modifier = Modifier.size(40.dp).clip(CircleShape).background(if (state.busy) JuxColors.Surface else JuxColors.AccentSoft),
+                ) {
                     Icon(
                         Icons.Default.PlayArrow,
                         "Играть на сервере",
                         tint = if (state.busy) JuxColors.TextMuted else JuxColors.Accent,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
@@ -699,7 +732,7 @@ private fun ServerIcon(favicon: ByteArray?) {
         }
     }
     Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(JuxDimens.CornerSmall)).background(JuxColors.SurfaceHigh),
+        Modifier.size(48.dp).clip(RoundedCornerShape(JuxDimens.CornerMedium)).background(JuxColors.Surface),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {

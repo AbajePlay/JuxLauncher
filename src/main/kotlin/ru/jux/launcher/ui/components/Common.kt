@@ -3,6 +3,7 @@ package ru.jux.launcher.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,12 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,8 +27,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
+import ru.jux.launcher.ui.theme.PillShape
+import ru.jux.launcher.ui.theme.softShadow
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
@@ -45,11 +48,12 @@ fun Panel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    val shape = RoundedCornerShape(JuxDimens.CornerLarge)
     Box(
         modifier = modifier
-            .background(JuxColors.Surface, RoundedCornerShape(JuxDimens.CornerLarge))
-            .border(1.dp, JuxColors.Outline, RoundedCornerShape(JuxDimens.CornerLarge))
-            .padding(JuxDimens.Gutter),
+            .softShadow(shape)
+            .background(JuxColors.Surface, shape)
+            .padding(22.dp),
     ) { content() }
 }
 
@@ -67,9 +71,8 @@ fun Banner(
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .background(accent.copy(alpha = 0.10f), RoundedCornerShape(JuxDimens.CornerMedium))
-                .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(JuxDimens.CornerMedium))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .background(accent.copy(alpha = 0.12f), RoundedCornerShape(JuxDimens.CornerCard))
+                .padding(horizontal = 18.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -107,12 +110,13 @@ fun Banner(
 fun Tag(text: String, color: Color) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
+        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
         color = color,
-        fontWeight = FontWeight.SemiBold,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
         modifier = Modifier
-            .background(color.copy(alpha = 0.14f), RoundedCornerShape(JuxDimens.CornerSmall))
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .background(color.copy(alpha = 0.14f), PillShape)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 

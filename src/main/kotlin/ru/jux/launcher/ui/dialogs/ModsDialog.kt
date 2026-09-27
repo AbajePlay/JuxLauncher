@@ -3,7 +3,6 @@ package ru.jux.launcher.ui.dialogs
 import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +44,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,8 +75,7 @@ import ru.jux.launcher.ui.components.WithTooltip
 import ru.jux.launcher.ui.components.formatCount
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
-import java.nio.file.Path
-import kotlin.io.path.createDirectories
+import ru.jux.launcher.ui.theme.PillShape
 
 private enum class ModsTab { CATALOG, INSTALLED }
 
@@ -254,9 +254,8 @@ private fun ColumnScope.ListBox(maxHeight: Int, content: @Composable (LazyListSt
             .weight(1f, fill = false)
             .heightIn(max = maxHeight.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
-            .background(JuxColors.Background)
-            .border(1.dp, JuxColors.Outline, RoundedCornerShape(JuxDimens.CornerMedium)),
+            .clip(RoundedCornerShape(JuxDimens.CornerCard))
+            .background(JuxColors.Background),
     ) {
         content(listState)
         VerticalScrollbar(
@@ -265,7 +264,7 @@ private fun ColumnScope.ListBox(maxHeight: Int, content: @Composable (LazyListSt
             style = ScrollbarStyle(
                 minimalHeight = 24.dp,
                 thickness = 6.dp,
-                shape = RoundedCornerShape(3.dp),
+                shape = PillShape,
                 hoverDurationMillis = 250,
                 unhoverColor = JuxColors.Text.copy(alpha = 0.18f),
                 hoverColor = JuxColors.Text.copy(alpha = 0.40f),

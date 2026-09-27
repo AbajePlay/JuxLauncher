@@ -1,6 +1,7 @@
 package ru.jux.launcher.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.TooltipArea
@@ -11,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,10 +62,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -74,6 +78,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
+import ru.jux.launcher.ui.theme.PillShape
+import ru.jux.launcher.ui.theme.softShadow
 
 @Composable
 fun JuxTextField(
@@ -99,7 +105,7 @@ fun JuxTextField(
         animationSpec = tween(150),
         label = "fieldOutline",
     )
-    val shape = RoundedCornerShape(JuxDimens.CornerMedium)
+    val shape = PillShape
 
     BasicTextField(
         value = value,
@@ -111,7 +117,7 @@ fun JuxTextField(
         keyboardOptions = KeyboardOptions(imeAction = if (onSubmit != null) ImeAction.Done else ImeAction.Default),
         keyboardActions = KeyboardActions(onDone = { onSubmit?.invoke() }),
         modifier = modifier
-            .height(40.dp)
+            .height(46.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { onFocusChange(it.isFocused) },
         decorationBox = { inner ->
@@ -120,7 +126,7 @@ fun JuxTextField(
                     .fillMaxSize()
                     .background(JuxColors.SurfaceHigh, shape)
                     .border(1.dp, outline, shape)
-                    .padding(start = 12.dp, end = if (clearable) 4.dp else 12.dp),
+                    .padding(start = 18.dp, end = if (clearable) 8.dp else 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (leadingIcon != null) {
@@ -181,7 +187,7 @@ fun ChoiceChip(
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
         when {
-            selected -> JuxColors.Accent.copy(alpha = 0.14f)
+            selected -> JuxColors.AccentSoft
             hovered && enabled -> JuxColors.Outline
             else -> JuxColors.SurfaceHigh
         },
@@ -196,18 +202,24 @@ fun ChoiceChip(
 
     Row(
         modifier
-            .height(32.dp)
-            .clip(RoundedCornerShape(JuxDimens.CornerSmall))
+            .height(38.dp)
+            .clip(PillShape)
             .background(background)
             .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
             Icon(icon, null, tint = content, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
         }
-        Text(label, style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = content,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
 }
 
@@ -236,19 +248,23 @@ fun JuxButton(
             disabledContentColor = JuxColors.TextMuted.copy(alpha = 0.5f),
         )
         ButtonStyle.DANGER -> ButtonDefaults.buttonColors(
-            containerColor = JuxColors.Danger.copy(alpha = 0.16f),
+            containerColor = JuxColors.Danger.copy(alpha = 0.14f),
             contentColor = JuxColors.Danger,
             disabledContainerColor = JuxColors.SurfaceHigh,
             disabledContentColor = JuxColors.TextMuted.copy(alpha = 0.5f),
         )
     }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed && enabled) 0.97f else 1f, animationSpec = tween(120), label = "buttonPress")
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(JuxDimens.CornerMedium),
+        shape = PillShape,
         colors = colors,
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        modifier = modifier.height(40.dp),
+        interactionSource = interaction,
+        contentPadding = PaddingValues(horizontal = 20.dp),
+        modifier = modifier.height(44.dp).graphicsLayer { scaleX = scale; scaleY = scale },
     ) {
         if (icon != null) {
             Icon(icon, null, modifier = Modifier.size(18.dp))
@@ -289,9 +305,9 @@ fun WithTooltip(text: String?, content: @Composable () -> Unit) {
                 color = JuxColors.Text,
                 modifier = Modifier
                     .widthIn(max = 320.dp)
+                    .softShadow(RoundedCornerShape(JuxDimens.CornerSmall), 12.dp)
                     .background(JuxColors.SurfaceHigh, RoundedCornerShape(JuxDimens.CornerSmall))
-                    .border(1.dp, JuxColors.Outline, RoundedCornerShape(JuxDimens.CornerSmall))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
             )
         },
         delayMillis = 450,
@@ -310,9 +326,10 @@ fun JuxDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier.widthIn(min = 200.dp),
-        shape = RoundedCornerShape(JuxDimens.CornerMedium),
+        shape = RoundedCornerShape(JuxDimens.CornerCard),
         containerColor = JuxColors.SurfaceHigh,
-        border = androidx.compose.foundation.BorderStroke(1.dp, JuxColors.Outline),
+        border = androidx.compose.foundation.BorderStroke(1.dp, JuxColors.Outline.copy(alpha = 0.6f)),
+        shadowElevation = 12.dp,
         content = content,
     )
 }
@@ -337,8 +354,8 @@ fun JuxMenuItem(
             disabledTextColor = JuxColors.TextMuted.copy(alpha = 0.5f),
             disabledLeadingIconColor = JuxColors.TextMuted.copy(alpha = 0.5f),
         ),
-        contentPadding = PaddingValues(horizontal = 14.dp),
-        modifier = Modifier.height(38.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        modifier = Modifier.height(42.dp),
     )
 }
 
@@ -347,15 +364,15 @@ fun ThinProgress(fraction: Float, modifier: Modifier = Modifier) {
     Box(
         modifier
             .fillMaxWidth()
-            .height(4.dp)
-            .clip(RoundedCornerShape(2.dp))
-            .background(JuxColors.Outline)
+            .height(6.dp)
+            .clip(PillShape)
+            .background(JuxColors.SurfaceHigh)
     ) {
         Box(
             Modifier
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
+                .height(6.dp)
+                .clip(PillShape)
                 .background(JuxColors.Accent)
         )
     }
@@ -424,11 +441,12 @@ fun JuxDialog(
         val shape = RoundedCornerShape(JuxDimens.CornerLarge)
         Column(
             Modifier
+                .padding(vertical = JuxDimens.Gutter)
                 .width(width)
+                .softShadow(shape, 32.dp)
                 .clip(shape)
                 .background(JuxColors.Surface)
-                .border(1.dp, JuxColors.Outline, shape)
-                .padding(JuxDimens.Gutter),
+                .padding(26.dp),
         ) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
