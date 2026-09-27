@@ -50,4 +50,32 @@ class ModManagerTest {
         assertFalse(jar.exists())
         assertEquals(0, ModManager.count(game))
     }
+
+    private fun version(id: String, type: String, date: String) =
+        Modrinth.Version(id = id, projectId = "AANobbMI", versionType = type, datePublished = date)
+
+    @Test
+    fun `updates go only to stable releases`() {
+        val installed = version("0.8.14", "release", "2026-08-28T10:00:00.123Z")
+        val beta = version("0.8.15-beta.1", "beta", "2026-09-20T10:00:00Z")
+        val alpha = version("0.9.0-alpha", "alpha", "2026-09-25T10:00:00Z")
+        val release = version("0.8.15", "release", "2026-10-01T10:00:00Z")
+
+        assertFalse(ModManager.isUpgrade(beta, installed))
+        assertFalse(ModManager.isUpgrade(alpha, installed))
+        assertTrue(ModManager.isUpgrade(release, installed))
+        assertFalse(ModManager.isUpgrade(installed, installed))
+        assertEquals(installed, ModManager.newestRelease(listOf(alpha, beta, installed)))
+        assertEquals(release, ModManager.newestRelease(listOf(beta, installed, release, alpha)))
+        assertEquals(null, ModManager.newestRelease(listOf(alpha, beta)))
+    }
+
+    @Test
+    fun `a beta install is moved to a newer release, never to an older one`() {
+        val installedBeta = version("0.8.15-beta.1", "beta", "2026-09-20T10:00:00Z")
+        val olderRelease = version("0.8.14", "release", "2026-08-28T10:00:00Z")
+        val newerRelease = version("0.8.15", "release", "2026-10-01T10:00:00Z")
+        assertFalse(ModManager.isUpgrade(olderRelease, installedBeta))
+        assertTrue(ModManager.isUpgrade(newerRelease, installedBeta))
+    }
 }

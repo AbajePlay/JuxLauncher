@@ -2,6 +2,8 @@ package ru.jux.launcher.mods
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.sha1Of
@@ -15,6 +17,7 @@ import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
@@ -77,8 +80,10 @@ object ModManager {
             val versions = remote("identify mods") { Modrinth.versionsByHash(known) }.orEmpty()
             val projects = remote("mod titles") { Modrinth.projects(versions.values.map { it.projectId }.distinct()) }
                 .orEmpty().associateBy { it.id }
+            val loaders = loadersFor(kind)
             val updates = if (withUpdates && versions.isNotEmpty()) {
-                remote("mod updates") { Modrinth.latestVersions(versions.keys, loadersFor(kind), gameVersion) }.orEmpty()
+                val latest = remote("mod updates") { Modrinth.latestVersions(versions.keys, loaders, gameVersion) }.orEmpty()
+                stableUpdates(versions, latest, loaders, gameVersion)
             } else {
                 emptyMap()
             }
@@ -88,7 +93,7 @@ object ModManager {
                 val sha1 = sums.getValue(file)
                 val version = versions[sha1]
                 val project = version?.let { projects[it.projectId] }
-                val newer = updates[sha1]?.takeIf { it.id != version?.id && it.versionType != "alpha" }
+                val newer = updates[sha1]
                 val enabled = file.name.endsWith(".jar")
                 InstalledMod(
                     file = file,
@@ -143,6 +148,7 @@ object ModManager {
         }
 
         val dir = modsDir(gameDir).also { it.createDirectories() }
+        val before = dir.listDirectoryEntries().toSet()
         val tasks = chosen.values.map { version ->
             val file = version.primaryFile ?: throw IOException("У ${version.name} нет файла для скачивания")
             val name = PerformancePack.safeFileName(file.filename)
@@ -150,6 +156,13 @@ object ModManager {
             DownloadTask(file.url, dir.resolve(name), file.sha1, file.size, label = name)
         }
         Downloader().run(tasks, onProgress)
+        val added = tasks.map { it.dest }.filter { it !in before }.toSet()
+        val existing = ModCompat.enabledIn(dir, except = added)
+        val conflicts = added.mapNotNull(ModCompat::read).flatMap { ModCompat.conflicts(it, existing) }
+        if (conflicts.isNotEmpty()) {
+            added.forEach { runCatching { it.deleteIfExists() } }
+            throw IncompatibleModException(conflicts, "не стал ставить, чтобы игра не упала")
+        }
         val titles = remote("installed titles") { Modrinth.titles(chosen.keys) }.orEmpty()
         Log.info("mods installed into $dir: ${tasks.joinToString { it.dest.name }}")
         chosen.keys.map { titles[it] ?: it }
@@ -163,12 +176,52 @@ object ModManager {
         val target = mod.file.resolveSibling(if (mod.enabled) name else name + DISABLED)
         val download = mod.file.resolveSibling("$name.download")
         Downloader().run(listOf(DownloadTask(file.url, download, file.sha1, file.size, label = name)), onProgress)
+        if (mod.enabled) {
+            val conflicts = ModCompat.read(download)
+                ?.let { ModCompat.conflicts(it, ModCompat.enabledIn(mod.file.parent, except = setOf(mod.file))) }
+                .orEmpty()
+            if (conflicts.isNotEmpty()) {
+                download.deleteIfExists()
+                throw IncompatibleModException(conflicts, "оставил прежнюю версию")
+            }
+        }
         locked(mod) {
             Files.move(download, target, StandardCopyOption.REPLACE_EXISTING)
             if (target != mod.file) mod.file.deleteIfExists()
         }
         Log.info("mod updated: ${mod.fileName} -> ${target.name}")
     }
+
+    private suspend fun stableUpdates(
+        installed: Map<String, Modrinth.Version>,
+        latest: Map<String, Modrinth.Version>,
+        loaders: List<String>,
+        gameVersion: String,
+    ): Map<String, Modrinth.Version> = coroutineScope {
+        latest.mapNotNull { (sha1, candidate) ->
+            val current = installed[sha1] ?: return@mapNotNull null
+            if (candidate.id == current.id) return@mapNotNull null
+            sha1 to async {
+                val release = if (candidate.versionType == "release") {
+                    candidate
+                } else {
+                    remote("releases of ${current.projectId}") {
+                        Modrinth.versions(current.projectId, loaders, gameVersion)
+                    }?.let(::newestRelease)
+                }
+                release?.takeIf { isUpgrade(it, current) }
+            }
+        }.mapNotNull { (sha1, lookup) -> lookup.await()?.let { sha1 to it } }.toMap()
+    }
+
+    internal fun newestRelease(versions: List<Modrinth.Version>): Modrinth.Version? =
+        versions.filter { it.versionType == "release" }.maxByOrNull(::publishedAt)
+
+    internal fun isUpgrade(candidate: Modrinth.Version, current: Modrinth.Version): Boolean =
+        candidate.versionType == "release" && candidate.id != current.id && publishedAt(candidate) > publishedAt(current)
+
+    private fun publishedAt(version: Modrinth.Version): Instant =
+        runCatching { Instant.parse(version.datePublished) }.getOrDefault(Instant.EPOCH)
 
     fun setEnabled(mod: InstalledMod, enabled: Boolean) {
         if (mod.enabled == enabled) return

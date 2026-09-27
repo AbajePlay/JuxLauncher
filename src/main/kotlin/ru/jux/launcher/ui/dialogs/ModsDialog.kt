@@ -55,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Shell
 import ru.jux.launcher.meta.LoaderKind
+import ru.jux.launcher.mods.IncompatibleModException
 import ru.jux.launcher.mods.InstalledMod
 import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.Modrinth
@@ -143,9 +144,30 @@ private class ModsModel(
     }
 
     fun updateAll() = work(ALL) {
-        val pending = updates
-        pending.forEach { mod -> ModManager.update(mod) { progress = it } }
-        message = "Обновлено модов: ${pending.size}"
+        var pending = updates
+        var done = 0
+        var skipped = emptyList<String>()
+        do {
+            val before = done
+            val failed = ArrayList<InstalledMod>()
+            val reasons = ArrayList<String>()
+            for (mod in pending) {
+                try {
+                    ModManager.update(mod) { progress = it }
+                    done++
+                } catch (e: IncompatibleModException) {
+                    failed += mod
+                    reasons += e.message.orEmpty()
+                }
+            }
+            pending = failed
+            skipped = reasons
+        } while (pending.isNotEmpty() && done > before)
+        if (skipped.isEmpty()) {
+            message = "Обновлено модов: $done"
+        } else {
+            error = (listOf("Обновлено модов: $done") + skipped).joinToString(". ")
+        }
     }
 
     fun toggle(mod: InstalledMod, enabled: Boolean) = work(mod.fileName) {
