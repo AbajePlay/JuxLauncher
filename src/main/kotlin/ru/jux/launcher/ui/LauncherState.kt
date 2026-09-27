@@ -14,6 +14,8 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import java.io.IOException
+import java.nio.file.Path
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,12 +23,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import ru.jux.launcher.activity.ActivityStats
+import ru.jux.launcher.activity.PlayHistory
 import ru.jux.launcher.auth.AccountManager
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Notice
 import ru.jux.launcher.core.NoticeAction
 import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.core.Notices
+import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.PlayRequest
 import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Preloader
@@ -57,10 +62,8 @@ import ru.jux.launcher.servers.ServerStatus
 import ru.jux.launcher.servers.Servers
 import ru.jux.launcher.update.UpdateManifest
 import ru.jux.launcher.update.Updater
-import java.io.IOException
-import java.nio.file.Path
 
-enum class Screen { HOME, NOTICES, SETTINGS, ACCOUNTS }
+enum class Screen { HOME, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
 
 data class VersionEntry(
     val version: ManifestVersion,
@@ -77,7 +80,6 @@ data class VersionGroup(
 )
 
 sealed interface Modal {
-    data class InstanceSettings(val entry: VersionEntry) : Modal
     data class Mods(val entry: VersionEntry) : Modal
     data class Delete(val entry: VersionEntry) : Modal
     data class Logs(val gameDir: Path?, val title: String, val source: LogSource) : Modal
@@ -137,6 +139,9 @@ class LauncherState(
     val noticesSeen = Notices.seen
 
     var seenBeforeOpen by mutableStateOf(0L)
+        private set
+
+    var activity by mutableStateOf<ActivityStats?>(null)
         private set
 
     var modal by mutableStateOf<Modal?>(null)
@@ -429,6 +434,18 @@ class LauncherState(
 
     fun dismissToast(id: Long) {
         if (toast?.id == id) toast = null
+    }
+
+    suspend fun loadActivity() {
+        val roots = listOfNotNull(
+            Paths.instances,
+            Settings.current.customGameDir?.takeIf { it.isNotBlank() }?.let { Path.of(it) },
+        ).distinct()
+        activity = withContext(Dispatchers.IO) {
+            runCatching { ActivityStats.of(PlayHistory.scan(roots)) }
+                .onFailure { Log.warn("activity scan failed: ${it.message}") }
+                .getOrNull()
+        } ?: activity ?: ActivityStats.of(emptyList())
     }
 
     fun openNotices() {

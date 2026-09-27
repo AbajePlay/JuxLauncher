@@ -15,7 +15,6 @@ import kotlin.io.path.readText
 data class LauncherSettings(
     val memoryMb: Int = SettingsDefaults.memoryMb(),
     val jvmArgs: String = SettingsDefaults.JVM_ARGS,
-    val closeOnLaunch: Boolean = false,
     val showSnapshots: Boolean = false,
     val showOldVersions: Boolean = false,
     val downloadConcurrency: Int = 0,

@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import ru.jux.launcher.instance.InstanceStore
 import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.readBytes
@@ -67,15 +66,17 @@ class ServerListTest {
     }
 
     @Test
-    fun `seeded once per instance, a removed server does not come back`(@TempDir dir: Path) {
+    fun `the server is always there, even after the player removes it`(@TempDir dir: Path) {
         val virtus = listOf(ServerEntry("VirtusMine", "mc.virtusmine.fun"))
         ServerList.seedDefaults(dir, virtus)
         assertEquals(1, servers(dir).size)
-        assertEquals(listOf("mc.virtusmine.fun"), InstanceStore.get(dir).seededServers)
 
         dir.resolve(ServerList.FILE_NAME).writeBytes(Nbt.writeRoot(Nbt.CompoundTag(mapOf("servers" to Nbt.ListTag(10, emptyList())))))
         ServerList.seedDefaults(dir, virtus)
-        assertTrue(servers(dir).isEmpty())
+        assertEquals(listOf("mc.virtusmine.fun"), servers(dir).map { it.text("ip") })
+
+        ServerList.seedDefaults(dir, virtus)
+        assertEquals(1, servers(dir).size)
     }
 
     @Test

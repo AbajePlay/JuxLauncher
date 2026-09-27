@@ -67,6 +67,7 @@ import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDropdownMenu
+import ru.jux.launcher.ui.components.JuxIcons
 import ru.jux.launcher.ui.components.JuxMenuItem
 import ru.jux.launcher.ui.components.MenuDivider
 import ru.jux.launcher.ui.components.NoticeToast
@@ -75,6 +76,7 @@ import ru.jux.launcher.ui.components.ThinProgress
 import ru.jux.launcher.ui.components.Wordmark
 import ru.jux.launcher.ui.dialogs.ModalHost
 import ru.jux.launcher.ui.screens.AccountsScreen
+import ru.jux.launcher.ui.screens.ActivityScreen
 import ru.jux.launcher.ui.screens.HomeScreen
 import ru.jux.launcher.ui.screens.NoticesScreen
 import ru.jux.launcher.ui.screens.SettingsScreen
@@ -126,6 +128,7 @@ private fun ScreenHost(state: LauncherState) {
     ) { screen ->
         when (screen) {
             Screen.HOME -> HomeScreen(state)
+            Screen.ACTIVITY -> ActivityScreen(state)
             Screen.NOTICES -> NoticesScreen(state)
             Screen.SETTINGS -> SettingsScreen(state)
             Screen.ACCOUNTS -> AccountsScreen(state)
@@ -153,6 +156,7 @@ private fun NavRail(state: LauncherState) {
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NavItem("Играть", Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
+            NavItem("Активность", JuxIcons.Activity, state.screen == Screen.ACTIVITY) { state.screen = Screen.ACTIVITY }
             NavItem(
                 "Уведомления",
                 Icons.Default.Notifications,

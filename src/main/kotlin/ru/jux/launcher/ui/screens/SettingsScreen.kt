@@ -61,11 +61,6 @@ fun SettingsScreen(state: LauncherState) {
         Panel(Modifier.fillMaxWidth()) {
             Column {
                 SectionTitle("Запуск")
-                LabeledRow("Полностью закрывать лаунчер при запуске игры") {
-                    JuxSwitch(settings.closeOnLaunch) { checked ->
-                        Settings.update { it.copy(closeOnLaunch = checked) }
-                    }
-                }
                 LabeledRow("Показывать игру в Discord") {
                     JuxSwitch(settings.discordPresence) { checked ->
                         Settings.update { it.copy(discordPresence = checked) }

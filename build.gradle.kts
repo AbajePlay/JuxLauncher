@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "ru.jux"
-version = "1.4.2"
+version = "1.5.0"
 
 kotlin {
     jvmToolchain(21)

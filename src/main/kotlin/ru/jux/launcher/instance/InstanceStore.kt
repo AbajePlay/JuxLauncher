@@ -29,7 +29,6 @@ data class InstanceOptions(
     val boostOwned: List<String> = emptyList(),
     val boostCheckedAt: Long = 0,
     val blockedUpdates: List<String> = emptyList(),
-    val seededServers: List<String> = emptyList(),
 )
 
 object InstanceStore {

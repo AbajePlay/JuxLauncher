@@ -46,7 +46,6 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -309,10 +308,6 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
             state.modal = Modal.Mods(entry)
         })
     }
-    JuxMenuItem("Настройки сборки…", icon = Icons.Default.Build, onClick = {
-        close()
-        state.modal = Modal.InstanceSettings(entry)
-    })
     JuxMenuItem("Ярлык на рабочем столе", icon = JuxIcons.OpenInNew, enabled = Shortcuts.isAvailable, onClick = {
         close()
         state.createShortcut(entry)

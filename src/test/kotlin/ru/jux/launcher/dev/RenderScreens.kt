@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
+import ru.jux.launcher.activity.PlayHistory
 import ru.jux.launcher.core.NoticeAction
 import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.core.Notices
@@ -29,6 +30,8 @@ fun main(args: Array<String>) {
     val scale = args.getOrNull(1)?.toFloatOrNull() ?: 1.25f
 
     Notices.file = null
+    PlayHistory.cacheFile = null
+    PlayHistory.historyFile = null
     val preloaded = runBlocking { Preloader.run { _, _ -> } }
         .copy(manifestStale = false, loaderSupportStale = false)
     val state = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded)
@@ -81,6 +84,7 @@ fun main(args: Array<String>) {
     render("home-toast", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     state.toast?.let { state.dismissToast(it.id) }
 
+    runBlocking { state.loadActivity() }
     for (screen in Screen.entries) {
         if (screen == Screen.NOTICES) state.openNotices() else state.screen = screen
         render(screen.name.lowercase(), 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
@@ -89,7 +93,6 @@ fun main(args: Array<String>) {
     state.screen = Screen.HOME
     val entry = state.currentEntry()
     val dialogs = listOfNotNull(
-        entry?.let { "dialog-instance" to Modal.InstanceSettings(it) },
         entry?.let { "dialog-delete" to Modal.Delete(it) },
         entry?.let { "dialog-logs" to Modal.Logs(state.gameDirOf(it), it.label, LogSource.GAME) },
         entry?.takeIf { it.loader.isModded }?.let { "dialog-mods" to Modal.Mods(it) },

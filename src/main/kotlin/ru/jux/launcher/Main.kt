@@ -12,7 +12,6 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import java.util.concurrent.TimeUnit
 import javax.swing.JOptionPane
 import kotlin.system.exitProcess
 import kotlinx.coroutines.Dispatchers
@@ -113,24 +112,9 @@ fun main(args: Array<String>) {
 
             LaunchedEffect(gameProcess) {
                 val process = gameProcess ?: return@LaunchedEffect
-                if (Settings.current.closeOnLaunch) {
-                    val exitedEarly = withContext(Dispatchers.IO) {
-                        runCatching { process.waitFor(EARLY_EXIT_SECONDS, TimeUnit.SECONDS) }.getOrDefault(false)
-                    }
-                    if (!exitedEarly || process.exitValue() == 0) {
-                        if (!exitedEarly && Settings.current.discordPresence) {
-                            Log.info("closing the window, staying in the background for the Discord status")
-                            MemoryRelease.afterWindowClosed()
-                            withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
-                        }
-                        shutdownAndExit()
-                        return@LaunchedEffect
-                    }
-                } else {
-                    Log.info("waiting for the game to exit, pid=${runCatching { process.pid() }.getOrDefault(-1)}")
-                    MemoryRelease.afterWindowClosed()
-                    withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
-                }
+                Log.info("waiting for the game to exit, pid=${runCatching { process.pid() }.getOrDefault(-1)}")
+                MemoryRelease.afterWindowClosed()
+                withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
                 Log.info("game exited with ${process.exitValue()}, showing the launcher again")
                 DiscordPresence.show(Presence.Launcher)
                 state.gameExited(process.exitValue())
@@ -172,8 +156,6 @@ fun main(args: Array<String>) {
         }
     }
 }
-
-private const val EARLY_EXIT_SECONDS = 20L
 
 private fun bootstrap(args: Array<String>): SingleInstance {
     val migration = Paths.migrateLegacyLocation()

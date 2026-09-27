@@ -2,7 +2,6 @@ package ru.jux.launcher.servers
 
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.writeAtomically
-import ru.jux.launcher.instance.InstanceStore
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInput
@@ -158,19 +157,10 @@ object ServerList {
     }
 
     fun seedDefaults(gameDir: Path, defaults: List<ServerEntry> = Servers.all) {
-        val seeded = InstanceStore.get(gameDir).seededServers.map(::normalize).toSet()
-        val pending = defaults.filter { normalize(it.address) !in seeded }
-        if (pending.isEmpty()) return
-        val done = pending.filter { server ->
+        defaults.forEach { server ->
             runCatching { ensure(gameDir, server.name, server.address) }
                 .onSuccess { added -> if (added) Log.info("added ${server.address} to the multiplayer list of $gameDir") }
                 .onFailure { Log.warn("could not add ${server.address} to $FILE_NAME: ${it.message}") }
-                .isSuccess
-        }
-        if (done.isNotEmpty()) {
-            InstanceStore.update(gameDir) { options ->
-                options.copy(seededServers = (options.seededServers + done.map { it.address }).distinct())
-            }
         }
     }
 

@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -51,12 +50,8 @@ import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.Storage
-import ru.jux.launcher.instance.InstanceOptions
-import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.logs.GameLogs
 import ru.jux.launcher.logs.LogSource
-import ru.jux.launcher.meta.LoaderKind
-import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.VersionEntry
@@ -65,8 +60,6 @@ import ru.jux.launcher.ui.components.ChoiceChip
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDialog
 import ru.jux.launcher.ui.components.JuxIcons
-import ru.jux.launcher.ui.components.JuxSwitch
-import ru.jux.launcher.ui.components.SectionTitle
 import ru.jux.launcher.ui.components.formatBytes
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
@@ -76,89 +69,9 @@ import ru.jux.launcher.ui.theme.PillShape
 fun ModalHost(state: LauncherState) {
     when (val modal = state.modal) {
         null -> Unit
-        is Modal.InstanceSettings -> InstanceDialog(state, modal.entry)
         is Modal.Mods -> ModsDialog(state, modal.entry)
         is Modal.Delete -> DeleteDialog(state, modal.entry)
         is Modal.Logs -> LogDialog(state, modal)
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun InstanceDialog(state: LauncherState, entry: VersionEntry) {
-    val dir = state.gameDirOf(entry)
-    val options = remember(state.instanceRevision, dir) { InstanceStore.get(dir) }
-    var folderSize by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(dir, state.instanceRevision) {
-        folderSize = withContext(Dispatchers.IO) { Storage.sizeOf(dir) }
-    }
-    val close = { state.modal = null }
-
-    val shownDir = if (dir.startsWith(Paths.root)) Paths.root.relativize(dir).toString() else dir.toString()
-    JuxDialog(
-        title = entry.label,
-        subtitle = "Папка $shownDir · ${folderSize?.let(::formatBytes) ?: "считаю размер…"}",
-        onDismiss = close,
-        width = 580.dp,
-        actions = {
-            JuxButton("Открыть папку", icon = JuxIcons.Folder, onClick = { state.openFolder(dir) })
-            JuxButton("Логи", icon = JuxIcons.Log, onClick = { state.showLogs(entry) })
-            JuxButton("Готово", style = ButtonStyle.PRIMARY, onClick = close)
-        },
-    ) {
-        if (entry.loader.supportsBoost) {
-            val fabricReady = state.loaderSupport.supports(LoaderKind.FABRIC, entry.id)
-            SectionTitle("FPS-буст")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Моды оптимизации с Modrinth: ${PerformancePack.summary}.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = JuxColors.Text,
-                    )
-                    Text(
-                        when {
-                            !fabricReady -> "Они работают через Fabric, а он пока не поддерживает ${entry.id}."
-                            entry.loader == LoaderKind.VANILLA ->
-                                "Игра запустится через Fabric в этой же папке — миры и настройки останутся на месте."
-                            else -> "Добавятся к твоим модам; те, что уже стоят, не продублируются."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = JuxColors.TextMuted,
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                JuxSwitch(options.fpsBoost, enabled = fabricReady && !state.busy) { state.setBoost(entry, it) }
-            }
-            if (options.fpsBoost) {
-                Spacer(Modifier.height(8.dp))
-                BoostStatus(entry, options)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BoostStatus(entry: VersionEntry, options: InstanceOptions) {
-    val lines = buildList {
-        when {
-            options.boostMods.isNotEmpty() || options.boostOwned.isNotEmpty() ->
-                add("Работают: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}" to JuxColors.Text)
-            options.boostCheckedAt == 0L -> add("Моды поставятся при следующем запуске." to JuxColors.TextMuted)
-            else -> add("Для ${entry.id} модов буста пока нет." to JuxColors.Warning)
-        }
-        if (options.boostMissing.isNotEmpty()) {
-            add("Ещё не вышли для ${entry.id}: ${options.boostMissing.joinToString()}." to JuxColors.TextMuted)
-        }
-    }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
-            .background(JuxColors.SurfaceHigh)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        lines.forEach { (text, color) -> Text(text, style = MaterialTheme.typography.bodySmall, color = color) }
     }
 }
 
