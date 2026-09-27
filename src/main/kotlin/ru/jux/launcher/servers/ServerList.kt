@@ -146,12 +146,16 @@ object ServerList {
         val root = if (file.exists()) Nbt.readRoot(file.readBytes()) else Nbt.CompoundTag(emptyMap())
         val servers = (root.entries["servers"] as? Nbt.ListTag)?.items.orEmpty()
         val wanted = normalize(address)
-        val present = servers.any { server ->
-            ((server as? Nbt.CompoundTag)?.entries?.get("ip") as? Nbt.StringTag)?.value?.let(::normalize) == wanted
+        val matching = servers.filterIsInstance<Nbt.CompoundTag>().filter { server ->
+            (server.entries["ip"] as? Nbt.StringTag)?.value?.let(::normalize) == wanted
         }
-        if (present) return false
-        val entry = Nbt.CompoundTag(linkedMapOf("name" to Nbt.StringTag(name), "ip" to Nbt.StringTag(address)))
-        val updated = Nbt.CompoundTag(root.entries + ("servers" to Nbt.ListTag(10, listOf(entry) + servers)))
+        if (matching.any { !isHidden(it) }) return false
+        val hidden = matching.firstOrNull()
+        val entry = hidden
+            ?.let { Nbt.CompoundTag(it.entries + ("name" to Nbt.StringTag(name)) + ("hidden" to Nbt.ByteTag(0))) }
+            ?: Nbt.CompoundTag(linkedMapOf("name" to Nbt.StringTag(name), "ip" to Nbt.StringTag(address)))
+        val rest = servers.filter { it !== hidden }
+        val updated = Nbt.CompoundTag(root.entries + ("servers" to Nbt.ListTag(10, listOf(entry) + rest)))
         file.writeAtomically(Nbt.writeRoot(updated))
         return true
     }
@@ -163,6 +167,9 @@ object ServerList {
                 .onFailure { Log.warn("could not add ${server.address} to $FILE_NAME: ${it.message}") }
         }
     }
+
+    private fun isHidden(server: Nbt.CompoundTag): Boolean =
+        ((server.entries["hidden"] as? Nbt.ByteTag)?.value ?: 0).toInt() != 0
 
     internal fun normalize(address: String): String =
         address.trim().lowercase().removeSuffix(".").removeSuffix(":25565")

@@ -51,6 +51,30 @@ class ServerListTest {
     }
 
     @Test
+    fun `a hidden quick play entry is turned into a visible one on top`(@TempDir dir: Path) {
+        val own = Nbt.CompoundTag(linkedMapOf("name" to Nbt.StringTag("Мой"), "ip" to Nbt.StringTag("play.example.org")))
+        val quickPlay = Nbt.CompoundTag(
+            linkedMapOf(
+                "icon" to Nbt.StringTag("iVBORw0KGgo="),
+                "name" to Nbt.StringTag("Minecraft Server"),
+                "ip" to Nbt.StringTag("mc.virtusmine.fun"),
+                "acceptTextures" to Nbt.ByteTag(1),
+                "hidden" to Nbt.ByteTag(1),
+            ),
+        )
+        dir.resolve(ServerList.FILE_NAME).writeBytes(Nbt.writeRoot(Nbt.CompoundTag(mapOf("servers" to Nbt.ListTag(10, listOf(own, quickPlay))))))
+
+        assertTrue(ServerList.ensure(dir, "VirtusMine", "mc.virtusmine.fun"))
+        val list = servers(dir)
+        assertEquals(listOf("mc.virtusmine.fun", "play.example.org"), list.map { it.text("ip") })
+        assertEquals("VirtusMine", list[0].text("name"))
+        assertEquals(Nbt.ByteTag(0), list[0]["hidden"])
+        assertEquals(Nbt.ByteTag(1), list[0]["acceptTextures"])
+        assertEquals(Nbt.StringTag("iVBORw0KGgo="), list[0]["icon"])
+        assertFalse(ServerList.ensure(dir, "VirtusMine", "mc.virtusmine.fun"))
+    }
+
+    @Test
     fun `does not add the same server twice, whatever the spelling`(@TempDir dir: Path) {
         assertTrue(ServerList.ensure(dir, "VirtusMine", "mc.virtusmine.fun"))
         assertFalse(ServerList.ensure(dir, "Virtus", "MC.VirtusMine.fun:25565"))

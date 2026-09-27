@@ -39,7 +39,6 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,28 +107,24 @@ private fun StatRow(stats: ActivityStats?) {
         StatCard(
             "Всего в игре",
             stats?.let { formatPlayTime(it.totalMillis) } ?: "…",
-            stats?.let { "${it.sessions.size} ${plural(it.sessions.size, "сессия", "сессии", "сессий")} · ${it.activeDays} ${daysWord(it.activeDays)}" }.orEmpty(),
             JuxIcons.Clock,
             JuxColors.Accent,
         )
         StatCard(
             "Эта неделя",
             stats?.let { formatPlayTime(it.weekMillis) } ?: "…",
-            stats?.let { if (it.lastWeekMillis > 0) "прошлая — ${formatPlayTime(it.lastWeekMillis)}" else "на прошлой без игры" }.orEmpty(),
             JuxIcons.Calendar,
             JuxColors.Info,
         )
         StatCard(
             "Серия",
             stats?.let { "${it.streak} ${daysWord(it.streak)}" } ?: "…",
-            stats?.let { "рекорд — ${it.bestStreak} ${daysWord(it.bestStreak)}" }.orEmpty(),
             JuxIcons.Flame,
             JuxColors.Warning,
         )
         StatCard(
             "Рекорд",
             stats?.longest?.let { formatPlayTime(it.millis) } ?: if (stats == null) "…" else "—",
-            stats?.longest?.let { "${dayOf(it.start)} · ${it.label}" }.orEmpty(),
             JuxIcons.Trophy,
             JuxColors.Success,
         )
@@ -137,7 +132,7 @@ private fun StatRow(stats: ActivityStats?) {
 }
 
 @Composable
-private fun RowScope.StatCard(label: String, value: String, hint: String, icon: ImageVector, tone: Color) {
+private fun RowScope.StatCard(label: String, value: String, icon: ImageVector, tone: Color) {
     val shape = RoundedCornerShape(JuxDimens.CornerCard)
     Column(
         Modifier
@@ -172,14 +167,6 @@ private fun RowScope.StatCard(label: String, value: String, hint: String, icon: 
                 softWrap = false,
             )
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            hint,
-            style = MaterialTheme.typography.bodySmall,
-            color = JuxColors.TextMuted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -199,13 +186,6 @@ private fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 private fun HeatmapCard(stats: ActivityStats?) {
     Card(Modifier.fillMaxWidth()) {
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SectionTitle("Каждый день", Modifier.weight(1f))
-                if (stats != null && stats.sessions.isEmpty()) {
-                    Text("Сыграй разок — и тут начнут загораться кубики", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
-                }
-            }
-            Spacer(Modifier.height(14.dp))
             Heatmap(stats)
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -378,9 +358,6 @@ private fun SessionRow(session: PlaySession, today: LocalDate) {
                 color = JuxColors.Text,
                 maxLines = 1,
             )
-            session.server?.let {
-                Text("на $it", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
         }
         Tag(session.label, loaderTone(session.loader))
         Text(
@@ -447,7 +424,6 @@ private fun daysWord(count: Int) = plural(count, "день", "дня", "дней
 
 private fun dateOf(at: Long): LocalDate = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalDate()
 
-private fun dayOf(at: Long): String = dateOf(at).let { "${it.dayOfMonth} ${MONTHS_OF[it.monthValue - 1]}" }
 
 private fun whenOf(at: Long, today: LocalDate): String {
     val date = dateOf(at)
