@@ -35,7 +35,7 @@ object DiscordPresence {
 
     const val APP_ID = "1553784416487346326"
 
-    const val DOWNLOAD_LABEL = "⬇ Скачать JuxLauncher"
+    const val DOWNLOAD_LABEL = "Скачать"
     const val PAGE_URL = "https://juxmc.ru/launcher/"
     private const val ART = "https://raw.githubusercontent.com/AbajePlay/JuxLauncher/main/branding/presence"
     const val LOGO = "$ART/logo.png"
