@@ -1,10 +1,6 @@
 package ru.jux.launcher
 
 import androidx.compose.runtime.LaunchedEffect
-import ru.jux.launcher.core.PlayArguments
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,24 +12,30 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import java.util.concurrent.TimeUnit
+import javax.swing.JOptionPane
+import kotlin.system.exitProcess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.ClassArchives
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.MemoryRelease
 import ru.jux.launcher.core.Paths
+import ru.jux.launcher.core.PlayArguments
 import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.SingleInstance
 import ru.jux.launcher.core.VerifyCache
+import ru.jux.launcher.discord.DiscordPresence
+import ru.jux.launcher.discord.Presence
 import ru.jux.launcher.net.Http
 import ru.jux.launcher.ui.App
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.SplashContent
 import ru.jux.launcher.ui.WindowChrome
 import ru.jux.launcher.ui.theme.JuxTheme
-import java.util.concurrent.TimeUnit
-import javax.swing.JOptionPane
-import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
     val instance = bootstrap(args)
@@ -104,6 +106,10 @@ fun main(args: Array<String>) {
                 withContext(Dispatchers.IO) { runCatching { ClassArchives.removeStale() } }
             }
             LaunchedEffect(Unit) { state.checkForUpdates() }
+            LaunchedEffect(Unit) {
+                DiscordPresence.show(Presence.Launcher)
+                DiscordPresence.start()
+            }
 
             LaunchedEffect(gameProcess) {
                 val process = gameProcess ?: return@LaunchedEffect
@@ -112,6 +118,11 @@ fun main(args: Array<String>) {
                         runCatching { process.waitFor(EARLY_EXIT_SECONDS, TimeUnit.SECONDS) }.getOrDefault(false)
                     }
                     if (!exitedEarly || process.exitValue() == 0) {
+                        if (!exitedEarly && Settings.current.discordPresence) {
+                            Log.info("closing the window, staying in the background for the Discord status")
+                            MemoryRelease.afterWindowClosed()
+                            withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
+                        }
                         shutdownAndExit()
                         return@LaunchedEffect
                     }
@@ -121,6 +132,7 @@ fun main(args: Array<String>) {
                     withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
                 }
                 Log.info("game exited with ${process.exitValue()}, showing the launcher again")
+                DiscordPresence.show(Presence.Launcher)
                 state.gameExited(process.exitValue())
                 shownDuringGame = false
                 gameProcess = null
@@ -198,6 +210,7 @@ private fun sinceProcessStart(): Long =
         .orElse(-1L)
 
 private fun shutdownAndExit() {
+    runCatching { DiscordPresence.stop() }
     runCatching { VerifyCache.save() }
     runCatching { Settings.save() }
     runCatching { Http.shutdown() }

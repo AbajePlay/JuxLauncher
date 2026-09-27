@@ -35,6 +35,8 @@ import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.VerifyCache
+import ru.jux.launcher.discord.DiscordPresence
+import ru.jux.launcher.discord.Presence
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.launch.GameLauncher
@@ -522,6 +524,15 @@ class LauncherState(
             refreshInstalled()
             entry?.let(::instanceChanged)
             lastLaunch = entry?.let { it to result.logFile }
+            DiscordPresence.show(
+                Presence.Playing(
+                    versionId = versionId,
+                    loaderLabel = loader.takeIf { it.isModded }?.label,
+                    server = serverAddress?.let { address -> servers.firstOrNull { it.address == address }?.name ?: address },
+                    mods = if (loader.isModded) ModManager.count(Settings.gameDir(versionId, loader)) else 0,
+                    startedAt = System.currentTimeMillis(),
+                ),
+            )
             onGameStarted(result.process)
         }
     }

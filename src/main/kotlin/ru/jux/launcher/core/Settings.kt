@@ -23,6 +23,7 @@ data class LauncherSettings(
     val lastVersionId: String? = null,
     val lastLoader: String? = null,
     val forceVerify: Boolean = false,
+    val discordPresence: Boolean = true,
 )
 
 object SettingsDefaults {

@@ -31,6 +31,7 @@ import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.SettingsDefaults
 import ru.jux.launcher.core.VerifyCache
+import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.net.Downloader
 import ru.jux.launcher.ui.LauncherState
@@ -62,10 +63,23 @@ fun SettingsScreen(state: LauncherState) {
                 SectionTitle("Запуск")
                 LabeledRow(
                     "Полностью закрывать лаунчер при запуске игры",
-                    "Выключено — лаунчер скроется и вернётся, когда игра закроется",
+                    when {
+                        !settings.closeOnLaunch -> "Выключено — лаунчер скроется и вернётся, когда игра закроется"
+                        settings.discordPresence -> "Окно закроется и не вернётся. Ради статуса в Discord лаунчер подождёт конца игры в фоне"
+                        else -> "Лаунчер закроется сразу после запуска игры"
+                    },
                 ) {
                     JuxSwitch(settings.closeOnLaunch) { checked ->
                         Settings.update { it.copy(closeOnLaunch = checked) }
+                    }
+                }
+                LabeledRow(
+                    "Показывать игру в Discord",
+                    "В профиле будет «Играет в JuxLauncher»: версия, сервер и время игры. Ник и аккаунт не видны",
+                ) {
+                    JuxSwitch(settings.discordPresence) { checked ->
+                        Settings.update { it.copy(discordPresence = checked) }
+                        DiscordPresence.refresh()
                     }
                 }
             }
