@@ -45,7 +45,12 @@ object PerformancePack {
         val mods: List<ManagedMod>,
         val missing: List<String>,
         val offline: Boolean,
-    )
+        val owned: List<String> = emptyList(),
+    ) {
+        val active: Boolean get() = mods.isNotEmpty() || owned.isNotEmpty()
+    }
+
+    internal data class Resolution(val chosen: List<Candidate>, val missing: List<String>, val owned: List<String>)
 
     internal class Candidate(val projectId: String, val title: String, val version: Modrinth.Version)
 
@@ -59,12 +64,13 @@ object PerformancePack {
         val options = InstanceStore.get(gameDir)
         val present = options.boostMods.filter { modsDir.resolve(it.fileName).exists() }
         val checkedRecently = System.currentTimeMillis() - options.boostCheckedAt in 0..RECHECK_MILLIS
-        if (checkedRecently && present.size == options.boostMods.size) {
-            return@withContext Outcome(present, options.boostMissing, offline = false)
+        val settled = options.boostMods.isNotEmpty() || options.boostOwned.isNotEmpty() || options.boostMissing.size >= MEMBERS.size
+        if (checkedRecently && settled && present.size == options.boostMods.size) {
+            return@withContext Outcome(present, options.boostMissing, offline = false, owned = options.boostOwned)
         }
 
         onStage("FPS-буст: подбираю моды под $gameVersion")
-        val (candidates, missing) = try {
+        val (candidates, missing, ownedTitles) = try {
             val owned = playersOwnProjects(modsDir, options.boostMods)
             resolve(
                 owned = owned,
@@ -75,7 +81,7 @@ object PerformancePack {
             throw e
         } catch (e: Exception) {
             Log.warn("performance pack: Modrinth unavailable: ${e.message}")
-            return@withContext Outcome(present, options.boostMissing, offline = true)
+            return@withContext Outcome(present, options.boostMissing, offline = true, owned = options.boostOwned)
         }
 
         val wanted = candidates.mapNotNull { candidate ->
@@ -103,10 +109,10 @@ object PerformancePack {
 
         val mods = wanted.map { it.first }
         InstanceStore.update(gameDir) {
-            it.copy(boostMods = mods, boostMissing = missing, boostCheckedAt = System.currentTimeMillis())
+            it.copy(boostMods = mods, boostMissing = missing, boostOwned = ownedTitles, boostCheckedAt = System.currentTimeMillis())
         }
-        Log.info("performance pack for $gameVersion: ${mods.joinToString { it.fileName }}; missing: $missing")
-        Outcome(mods, missing, offline = false)
+        Log.info("performance pack for $gameVersion: ${mods.joinToString { it.fileName }}; already there: $ownedTitles; missing: $missing")
+        Outcome(mods, missing, offline = false, owned = ownedTitles)
     }
 
     fun remove(gameDir: Path) {
@@ -114,7 +120,7 @@ object PerformancePack {
         val modsDir = gameDir.resolve("mods")
         options.boostMods.forEach { mod -> runCatching { modsDir.resolve(mod.fileName).deleteIfExists() } }
         InstanceStore.update(gameDir) {
-            it.copy(fpsBoost = false, boostMods = emptyList(), boostMissing = emptyList(), boostCheckedAt = 0)
+            it.copy(fpsBoost = false, boostMods = emptyList(), boostMissing = emptyList(), boostOwned = emptyList(), boostCheckedAt = 0)
         }
     }
 
@@ -122,15 +128,16 @@ object PerformancePack {
         owned: Set<String>,
         find: suspend (project: String) -> Modrinth.Version?,
         titles: suspend (ids: Collection<String>) -> Map<String, String>,
-    ): Pair<List<Candidate>, List<String>> = coroutineScope {
+    ): Resolution = coroutineScope {
         val chosen = LinkedHashMap<String, Candidate>()
         val missing = ArrayList<String>()
+        val alreadyThere = ArrayList<String>()
         val memberProjects = HashMap<String, String>()
 
         MEMBERS.map { member -> async { member to find(member.slug) } }.awaitAll().forEach { (member, version) ->
             when {
                 version == null -> missing += member.title
-                version.projectId in owned -> Unit
+                version.projectId in owned -> alreadyThere += member.title
                 else -> {
                     chosen[version.projectId] = Candidate(version.projectId, member.title, version)
                     memberProjects[version.projectId] = member.title
@@ -167,7 +174,7 @@ object PerformancePack {
             }
         } while (broken.isNotEmpty())
 
-        chosen.values.toList() to missing
+        Resolution(chosen.values.toList(), missing, alreadyThere)
     }
 
     private fun playersOwnProjects(modsDir: Path, managed: List<ManagedMod>): Set<String> {

@@ -23,12 +23,13 @@ data class ManagedMod(
 
 @Serializable
 data class InstanceOptions(
-    val memoryMb: Int? = null,
     val fpsBoost: Boolean = false,
     val boostMods: List<ManagedMod> = emptyList(),
     val boostMissing: List<String> = emptyList(),
+    val boostOwned: List<String> = emptyList(),
     val boostCheckedAt: Long = 0,
     val blockedUpdates: List<String> = emptyList(),
+    val seededServers: List<String> = emptyList(),
 )
 
 object InstanceStore {

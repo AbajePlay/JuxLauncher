@@ -60,7 +60,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,11 +80,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.io.path.exists
 import kotlinx.coroutines.delay
-import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.meta.LoaderKind
-import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.servers.ServerEntry
@@ -106,7 +103,6 @@ import ru.jux.launcher.ui.components.SearchField
 import ru.jux.launcher.ui.components.Tag
 import ru.jux.launcher.ui.components.WithTooltip
 import ru.jux.launcher.ui.components.formatBytes
-import ru.jux.launcher.ui.components.formatMemory
 import ru.jux.launcher.ui.components.formatReleaseDate
 import ru.jux.launcher.ui.components.formatSpeed
 import ru.jux.launcher.ui.theme.JuxColors
@@ -226,7 +222,6 @@ private fun PlayButton(installed: Boolean, enabled: Boolean, onClick: () -> Unit
 @Composable
 private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
     val options = state.selectedOptions
-    val settings by Settings.state.collectAsState()
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (entry.loader.supportsBoost) {
@@ -243,29 +238,14 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
         }
 
         if (entry.loader.isModded) {
-            val count = remember(entry, state.instanceRevision) { ModManager.count(state.gameDirOf(entry)) }
             WithTooltip("Каталог модов Modrinth: поиск, установка и обновление модов этой сборки") {
                 ChoiceChip(
-                    label = if (count > 0) "Моды · $count" else "Моды",
+                    label = "Моды",
                     selected = false,
                     onClick = { state.modal = Modal.Mods(entry) },
                     icon = JuxIcons.Extension,
                 )
             }
-        }
-
-        val own = options.memoryMb
-        WithTooltip(
-            if (own != null) "Своя память этой сборки. Изменить — в настройках сборки."
-            else "Память как в настройках лаунчера. Для этой сборки можно задать свою."
-        ) {
-            ChoiceChip(
-                label = formatMemory(own ?: settings.memoryMb),
-                selected = own != null,
-                onClick = { state.modal = Modal.InstanceSettings(entry) },
-                enabled = !state.busy,
-                icon = JuxIcons.Memory,
-            )
         }
 
         EntryMenuButton(state, entry)
@@ -275,8 +255,8 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
 private fun boostHint(entry: VersionEntry, options: InstanceOptions, fabricReady: Boolean): String = when {
     !fabricReady ->
         "Моды FPS-буста работают через Fabric, а он пока не поддерживает ${entry.id}."
-    options.fpsBoost && options.boostMods.isNotEmpty() ->
-        "Включён: ${options.boostMods.joinToString { it.title }}." +
+    options.fpsBoost && (options.boostMods.isNotEmpty() || options.boostOwned.isNotEmpty()) ->
+        "Включён: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}." +
             (if (options.boostMissing.isNotEmpty()) " Ещё не вышли для ${entry.id}: ${options.boostMissing.joinToString()}." else "") +
             " Нажми, чтобы выключить — моды удалятся."
     options.fpsBoost ->

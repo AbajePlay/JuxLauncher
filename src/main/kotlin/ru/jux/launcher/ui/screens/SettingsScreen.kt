@@ -61,22 +61,12 @@ fun SettingsScreen(state: LauncherState) {
         Panel(Modifier.fillMaxWidth()) {
             Column {
                 SectionTitle("Запуск")
-                LabeledRow(
-                    "Полностью закрывать лаунчер при запуске игры",
-                    when {
-                        !settings.closeOnLaunch -> "Выключено — лаунчер скроется и вернётся, когда игра закроется"
-                        settings.discordPresence -> "Окно закроется и не вернётся. Ради статуса в Discord лаунчер подождёт конца игры в фоне"
-                        else -> "Лаунчер закроется сразу после запуска игры"
-                    },
-                ) {
+                LabeledRow("Полностью закрывать лаунчер при запуске игры") {
                     JuxSwitch(settings.closeOnLaunch) { checked ->
                         Settings.update { it.copy(closeOnLaunch = checked) }
                     }
                 }
-                LabeledRow(
-                    "Показывать игру в Discord",
-                    "В профиле будет «Играет в JuxLauncher»: версия, сервер и время игры. Ник и аккаунт не видны",
-                ) {
+                LabeledRow("Показывать игру в Discord") {
                     JuxSwitch(settings.discordPresence) { checked ->
                         Settings.update { it.copy(discordPresence = checked) }
                         DiscordPresence.refresh()
@@ -111,7 +101,6 @@ fun SettingsScreen(state: LauncherState) {
 private fun MemoryPanel(settings: LauncherSettings) {
     val total = remember { SettingsDefaults.totalSystemMemoryMb() }
     val presets = remember { SettingsDefaults.memoryPresets(total) }
-    val recommended = remember { SettingsDefaults.memoryMb() }
 
     Panel(Modifier.fillMaxWidth()) {
         Column {
@@ -120,12 +109,6 @@ private fun MemoryPanel(settings: LauncherSettings) {
                 "${formatMemory(settings.memoryMb)} для игры · в компьютере ${formatTotalMemory(total)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = JuxColors.Text,
-            )
-            Text(
-                "Больше — не всегда лучше: сверх 8 ГБ паузы сборщика мусора становятся заметнее, " +
-                    "чем выигрыш от объёма. Для этого компьютера советуем ${formatMemory(recommended)}.",
-                style = MaterialTheme.typography.bodySmall,
-                color = JuxColors.TextMuted,
             )
             Spacer(Modifier.height(12.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -138,12 +121,6 @@ private fun MemoryPanel(settings: LauncherSettings) {
                     ChoiceChip("${formatMemory(settings.memoryMb)} (своё)", selected = true, onClick = {})
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Отдельной сборке можно задать свою память: ⋮ на карточке «К запуску» → «Настройки сборки».",
-                style = MaterialTheme.typography.bodySmall,
-                color = JuxColors.TextMuted,
-            )
         }
     }
 }

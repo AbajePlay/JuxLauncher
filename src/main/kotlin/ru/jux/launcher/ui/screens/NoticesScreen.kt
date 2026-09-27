@@ -37,7 +37,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ru.jux.launcher.core.Notice
 import ru.jux.launcher.core.NoticeAction
-import ru.jux.launcher.core.Notices
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
@@ -57,16 +56,12 @@ fun NoticesScreen(state: LauncherState) {
 
     Column(Modifier.fillMaxSize().padding(JuxDimens.Gutter)) {
         Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Уведомления", style = MaterialTheme.typography.headlineSmall, color = JuxColors.Text)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    if (items.isEmpty()) "Ошибки запуска, обновления модов и другие события лаунчера"
-                    else "Последние события — хранятся до ${Notices.LIMIT} штук",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = JuxColors.TextMuted,
-                )
-            }
+            Text(
+                "Уведомления",
+                style = MaterialTheme.typography.headlineSmall,
+                color = JuxColors.Text,
+                modifier = Modifier.weight(1f),
+            )
             if (items.isNotEmpty()) {
                 JuxButton("Очистить", onClick = state::clearNotices, icon = Icons.Default.Delete)
             }

@@ -235,7 +235,7 @@ fun ModsDialog(state: LauncherState, entry: VersionEntry) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ChoiceChip("Каталог", selected = model.tab == ModsTab.CATALOG, onClick = { model.tab = ModsTab.CATALOG })
             ChoiceChip(
-                if (model.scanned) "Установленные · ${model.installed.size}" else "Установленные",
+                "Установленные",
                 selected = model.tab == ModsTab.INSTALLED,
                 onClick = { model.tab = ModsTab.INSTALLED },
             )

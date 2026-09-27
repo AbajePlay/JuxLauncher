@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -31,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,8 +49,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Paths
-import ru.jux.launcher.core.Settings
-import ru.jux.launcher.core.SettingsDefaults
 import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.Storage
 import ru.jux.launcher.instance.InstanceOptions
@@ -72,7 +68,6 @@ import ru.jux.launcher.ui.components.JuxIcons
 import ru.jux.launcher.ui.components.JuxSwitch
 import ru.jux.launcher.ui.components.SectionTitle
 import ru.jux.launcher.ui.components.formatBytes
-import ru.jux.launcher.ui.components.formatMemory
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 import ru.jux.launcher.ui.theme.PillShape
@@ -93,8 +88,6 @@ fun ModalHost(state: LauncherState) {
 private fun InstanceDialog(state: LauncherState, entry: VersionEntry) {
     val dir = state.gameDirOf(entry)
     val options = remember(state.instanceRevision, dir) { InstanceStore.get(dir) }
-    val settings by Settings.state.collectAsState()
-    val presets = remember { SettingsDefaults.memoryPresets(SettingsDefaults.totalSystemMemoryMb()) }
     var folderSize by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(dir, state.instanceRevision) {
         folderSize = withContext(Dispatchers.IO) { Storage.sizeOf(dir) }
@@ -113,30 +106,8 @@ private fun InstanceDialog(state: LauncherState, entry: VersionEntry) {
             JuxButton("Готово", style = ButtonStyle.PRIMARY, onClick = close)
         },
     ) {
-        SectionTitle("Память")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChoiceChip(
-                "Как в настройках · ${formatMemory(settings.memoryMb)}",
-                selected = options.memoryMb == null,
-                onClick = { state.setInstanceMemory(entry, null) },
-            )
-            presets.forEach { mb ->
-                ChoiceChip(formatMemory(mb), selected = options.memoryMb == mb, onClick = { state.setInstanceMemory(entry, mb) })
-            }
-            options.memoryMb?.takeIf { it !in presets }?.let { own ->
-                ChoiceChip(formatMemory(own), selected = true, onClick = {})
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Ванильной игре хватает 2–4 ГБ, сборкам с модами обычно нужно 6–8 ГБ.",
-            style = MaterialTheme.typography.bodySmall,
-            color = JuxColors.TextMuted,
-        )
-
         if (entry.loader.supportsBoost) {
             val fabricReady = state.loaderSupport.supports(LoaderKind.FABRIC, entry.id)
-            Spacer(Modifier.height(20.dp))
             SectionTitle("FPS-буст")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -171,7 +142,8 @@ private fun InstanceDialog(state: LauncherState, entry: VersionEntry) {
 private fun BoostStatus(entry: VersionEntry, options: InstanceOptions) {
     val lines = buildList {
         when {
-            options.boostMods.isNotEmpty() -> add("Установлено: ${options.boostMods.joinToString { it.title }}" to JuxColors.Text)
+            options.boostMods.isNotEmpty() || options.boostOwned.isNotEmpty() ->
+                add("Работают: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}" to JuxColors.Text)
             options.boostCheckedAt == 0L -> add("Моды поставятся при следующем запуске." to JuxColors.TextMuted)
             else -> add("Для ${entry.id} модов буста пока нет." to JuxColors.Warning)
         }

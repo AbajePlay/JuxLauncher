@@ -1,5 +1,8 @@
 package ru.jux.launcher.launch
 
+import java.io.IOException
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,9 +21,7 @@ import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.net.Downloader
 import ru.jux.launcher.runtime.JavaComponents
 import ru.jux.launcher.runtime.JavaManager
-import java.io.IOException
-import java.nio.file.Path
-import kotlin.io.path.createDirectories
+import ru.jux.launcher.servers.ServerList
 
 data class LaunchResult(val process: Process, val gameDir: Path, val logFile: Path)
 
@@ -43,6 +44,7 @@ object GameLauncher {
         onNotice: (String) -> Unit = {},
     ): LaunchResult {
         val prepared = prepare(versionId, loader, onStage, onProgress, onNotice)
+        withContext(Dispatchers.IO) { runCatching { ServerList.seedDefaults(prepared.gameDir) } }
 
         onStage("Проверка аккаунта")
         val readyAccount = AccountManager.prepareForLaunch(account, onStage)
@@ -138,7 +140,7 @@ object GameLauncher {
         else withContext(Dispatchers.IO) { installer.resolve(profileId) }
 
         val installed = installer.install(version, gameDir, onStage, onProgress)
-        return PreparedLaunch(installed, gameDir, javaExecutable, options.memoryMb ?: settings.memoryMb)
+        return PreparedLaunch(installed, gameDir, javaExecutable, settings.memoryMb)
     }
 
     private suspend fun applyBoost(
@@ -151,14 +153,14 @@ object GameLauncher {
     ): LoaderKind {
         val boost = PerformancePack.sync(gameDir, versionId, onStage, onProgress)
         when {
-            boost.mods.isEmpty() && boost.offline ->
+            !boost.active && boost.offline ->
                 onNotice("FPS-буст не установился: нет связи с Modrinth. Игра запущена без него.")
-            boost.mods.isEmpty() ->
+            !boost.active ->
                 onNotice("Для $versionId модов FPS-буста пока нет. Игра запущена без него.")
             boost.missing.isNotEmpty() ->
                 onNotice("FPS-буст без ${boost.missing.joinToString()}: для $versionId они ещё не вышли.")
         }
-        return if (boost.mods.isNotEmpty()) LoaderKind.FABRIC else loader
+        return if (boost.active) LoaderKind.FABRIC else loader
     }
 
     private suspend fun resolveJava(

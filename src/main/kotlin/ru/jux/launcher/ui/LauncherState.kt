@@ -553,7 +553,7 @@ class LauncherState(
 
     fun playOnServer(server: ServerEntry) {
         if (busy) return
-        server.entryKey?.let(::entryByKey)?.let(::selectEntry)
+        if (selectedVersionId == null) server.entryKey?.let(::entryByKey)?.let(::selectEntry)
         play(serverAddress = server.address)
     }
 
@@ -619,11 +619,6 @@ class LauncherState(
     }
 
     fun modsChanged(entry: VersionEntry) = instanceChanged(entry)
-
-    fun setInstanceMemory(entry: VersionEntry, memoryMb: Int?) {
-        InstanceStore.update(gameDirOf(entry)) { it.copy(memoryMb = memoryMb) }
-        instanceChanged(entry)
-    }
 
     fun openFolder(dir: Path) = Shell.openFolder(dir) { fail(it) }
 

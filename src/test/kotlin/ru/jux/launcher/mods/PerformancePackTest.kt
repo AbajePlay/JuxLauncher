@@ -61,10 +61,11 @@ class PerformancePackTest {
 
     @Test
     fun `mods the player already has are neither installed again nor reported missing`() {
-        val (chosen, missing) = runBlocking { PerformancePack.resolve(setOf("sodium"), finder(), titles) }
+        val (chosen, missing, owned) = runBlocking { PerformancePack.resolve(setOf("sodium"), finder(), titles) }
 
         assertTrue(chosen.none { it.projectId == "sodium" })
         assertTrue(missing.isEmpty())
+        assertEquals(listOf("Sodium"), owned)
     }
 
     @Test
