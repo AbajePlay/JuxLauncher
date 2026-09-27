@@ -22,12 +22,12 @@ data class ActivityStats(
     val versions: List<VersionTime>,
     val servers: List<Pair<String, Long>>,
 ) {
-    val recent: List<PlaySession> get() = sessions.sortedByDescending { it.start }.take(RECENT)
+    val recent: List<PlaySession> get() = sessions.sortedByDescending { it.start }.take(RECENT_MAX)
     val activeDays: Int get() = days.count { it.value > 0 }
 
     companion object {
-        private const val RECENT = 6
-        private const val TOP = 5
+        const val RECENT_MAX = 12
+        const val TOP = 4
 
         fun of(sessions: List<PlaySession>, today: LocalDate = LocalDate.now(), zone: ZoneId = ZoneId.systemDefault()): ActivityStats {
             val days = HashMap<LocalDate, Long>()

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -31,18 +30,31 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.delay
 import ru.jux.launcher.activity.ActivityStats
 import ru.jux.launcher.activity.PlaySession
@@ -55,12 +67,6 @@ import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 import ru.jux.launcher.ui.theme.PillShape
 import ru.jux.launcher.ui.theme.softShadow
-import java.time.DayOfWeek
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.temporal.TemporalAdjusters
 
 private val MONTHS_SHORT = listOf("янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
 private val MONTHS_OF = listOf(
@@ -72,6 +78,10 @@ private val CELL = 13.dp
 private val GAP = 4.dp
 private val DAY_LABELS = 26.dp
 private const val REFRESH_MILLIS = 60_000L
+private val SESSION_ROW = 38.dp
+private val SESSION_ROW_MAX = 46.dp
+private val RECENT_OVERHEAD = 44.dp + 26.dp + 10.dp
+private const val RECENT_MIN = 3
 
 @Composable
 fun ActivityScreen(state: LauncherState) {
@@ -95,12 +105,24 @@ fun ActivityScreen(state: LauncherState) {
         )
         StatRow(stats)
         HeatmapCard(stats)
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        val density = LocalDensity.current
+        var leftHeight by remember { mutableStateOf(0.dp) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+            Column(
+                Modifier.weight(1f).onSizeChanged { leftHeight = with(density) { it.height.toDp() } },
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 VersionsCard(stats, Modifier.fillMaxWidth())
-                ServersCard(stats, Modifier.fillMaxWidth().weight(1f))
+                ServersCard(stats, Modifier.fillMaxWidth())
             }
-            RecentCard(stats, Modifier.weight(1.25f).fillMaxHeight())
+            val fits = ((leftHeight - RECENT_OVERHEAD) / SESSION_ROW).toInt().coerceIn(RECENT_MIN, ActivityStats.RECENT_MAX)
+            val shown = minOf(fits, stats?.recent?.size ?: 0)
+            val rowHeight = if (shown == fits && leftHeight > 0.dp) {
+                ((leftHeight - RECENT_OVERHEAD) / fits).coerceIn(SESSION_ROW, SESSION_ROW_MAX)
+            } else {
+                SESSION_ROW
+            }
+            RecentCard(stats, fits, rowHeight, Modifier.weight(1.25f))
         }
     }
 }
@@ -298,7 +320,7 @@ private fun Heatmap(stats: ActivityStats?) {
 private fun VersionsCard(stats: ActivityStats?, modifier: Modifier) {
     Card(modifier) {
         Column {
-            SectionTitle("Любимые версии")
+            CardTitle("Любимые версии", JuxIcons.Layers, JuxColors.Info)
             Spacer(Modifier.height(14.dp))
             val versions = stats?.versions.orEmpty()
             if (versions.isEmpty()) {
@@ -340,7 +362,7 @@ private fun VersionsCard(stats: ActivityStats?, modifier: Modifier) {
 private fun ServersCard(stats: ActivityStats?, modifier: Modifier) {
     Card(modifier) {
         Column {
-            SectionTitle("Любимые серверы")
+            CardTitle("Любимые серверы", JuxIcons.Server, JuxColors.Success)
             Spacer(Modifier.height(14.dp))
             val servers = stats?.servers.orEmpty()
             if (servers.isEmpty()) {
@@ -355,13 +377,6 @@ private fun ServersCard(stats: ActivityStats?, modifier: Modifier) {
                 servers.forEach { (address, millis) ->
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                Modifier.size(22.dp).clip(CircleShape).background(JuxColors.Success.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(JuxIcons.Server, null, tint = JuxColors.Success, modifier = Modifier.size(12.dp))
-                            }
-                            Spacer(Modifier.width(10.dp))
                             Text(
                                 address,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -391,23 +406,37 @@ private fun ServersCard(stats: ActivityStats?, modifier: Modifier) {
 }
 
 @Composable
-private fun RecentCard(stats: ActivityStats?, modifier: Modifier) {
+private fun RecentCard(stats: ActivityStats?, rows: Int, rowHeight: Dp, modifier: Modifier) {
     Card(modifier) {
         Column {
-            SectionTitle("Последние сессии")
+            CardTitle("Последние сессии", JuxIcons.History, JuxColors.Accent)
             Spacer(Modifier.height(10.dp))
-            val recent = stats?.recent.orEmpty()
+            val recent = stats?.recent.orEmpty().take(rows)
             if (recent.isEmpty()) {
                 Text(if (stats == null) "Считаю…" else "Пока пусто", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
             }
-            recent.forEach { session -> SessionRow(session, stats?.today ?: LocalDate.now()) }
+            recent.forEach { session -> SessionRow(session, stats?.today ?: LocalDate.now(), rowHeight) }
         }
     }
 }
 
 @Composable
-private fun SessionRow(session: PlaySession, today: LocalDate) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun CardTitle(text: String, icon: ImageVector, tone: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(26.dp).clip(CircleShape).background(tone.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = tone, modifier = Modifier.size(14.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        SectionTitle(text)
+    }
+}
+
+@Composable
+private fun SessionRow(session: PlaySession, today: LocalDate, height: Dp) {
+    Row(Modifier.fillMaxWidth().height(height), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
                 whenOf(session.start, today),
