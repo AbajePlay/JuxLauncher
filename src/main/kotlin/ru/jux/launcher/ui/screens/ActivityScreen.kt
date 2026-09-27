@@ -61,7 +61,6 @@ import ru.jux.launcher.activity.PlaySession
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.components.JuxIcons
-import ru.jux.launcher.ui.components.SectionTitle
 import ru.jux.launcher.ui.components.Tag
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
@@ -430,7 +429,7 @@ private fun CardTitle(text: String, icon: ImageVector, tone: Color) {
             Icon(icon, null, tint = tone, modifier = Modifier.size(14.dp))
         }
         Spacer(Modifier.width(10.dp))
-        SectionTitle(text)
+        Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = JuxColors.TextMuted)
     }
 }
 
