@@ -3,6 +3,7 @@ package ru.jux.launcher.update
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.assertThrows
 import ru.jux.launcher.core.toHex
 import java.io.IOException
 import java.net.InetSocketAddress
+import java.nio.file.Path
 import java.security.MessageDigest
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
@@ -29,6 +31,16 @@ class UpdaterTest {
         assertFalse(Updater.isNewer("1.0", "1.0.0"))
         assertFalse(Updater.isNewer("1.1.0-beta", "1.1.0"))
         assertFalse(Updater.isNewer("0.9", "1.0.0"))
+    }
+
+    @Test
+    fun `an update does not bring back a removed desktop shortcut`() {
+        val msi = Path.of("JuxLauncher-1.5.5.msi")
+        assertEquals("/i \"JuxLauncher-1.5.5.msi\" /passive /norestart", Updater.msiArguments(msi, desktopShortcut = true))
+        assertEquals(
+            "/i \"JuxLauncher-1.5.5.msi\" /passive /norestart JP_INSTALL_DESKTOP_SHORTCUT=\"\"",
+            Updater.msiArguments(msi, desktopShortcut = false),
+        )
     }
 
     @Test

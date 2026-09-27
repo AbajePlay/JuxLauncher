@@ -12,6 +12,7 @@ import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Shell
+import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.toHex
 import ru.jux.launcher.launch.ArgumentBuilder
 import ru.jux.launcher.net.Http
@@ -166,11 +167,17 @@ object Updater {
             }
         }
 
+    internal fun msiArguments(installer: Path, desktopShortcut: Boolean): String {
+        val base = "/i \"$installer\" /passive /norestart"
+        return if (desktopShortcut) base else "$base JP_INSTALL_DESKTOP_SHORTCUT=\"\""
+    }
+
     private fun startInstaller(installer: Path, app: Path) {
         val pid = ProcessHandle.current().pid()
         val install = if (installer.toString().endsWith(".msi")) {
+            val keepDesktop = Shortcuts.appOnDesktop(app).exists()
             "Start-Process -FilePath 'msiexec.exe' -ArgumentList " +
-                Shell.psLiteral("/i \"$installer\" /passive /norestart") + " -Wait"
+                Shell.psLiteral(msiArguments(installer, keepDesktop)) + " -Wait"
         } else {
             "Start-Process -FilePath ${Shell.psLiteral(installer.toString())} -Wait"
         }

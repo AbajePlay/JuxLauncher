@@ -22,6 +22,8 @@ object Shortcuts {
         return link
     }
 
+    fun appOnDesktop(app: Path): Path = desktop().resolve(app.fileName.toString().substringBeforeLast('.') + ".lnk")
+
     internal fun create(link: Path, target: Path, arguments: String, description: String) {
         val script = listOf(
             "\$link = (New-Object -ComObject WScript.Shell).CreateShortcut(${Shell.psLiteral(link.toString())})",
