@@ -59,6 +59,7 @@ fun main(args: Array<String>) {
     }
 
     render("splash", 520, 180) { JuxTheme { SplashContent(0.7f, "Подтягиваю загрузчики модов") } }
+    render("site-home", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
 
     val sample = state.currentEntry()
     val day = 24L * 60 * 60 * 1000
