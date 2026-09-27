@@ -25,4 +25,25 @@ class FormatsTest {
         assertEquals("16 ГБ", formatTotalMemory(16264))
         assertEquals("1,5 ГБ", formatBytes(1536L * 1024 * 1024))
     }
+
+    @Test
+    fun `download counts read like a person would say them`() {
+        assertEquals("950", formatCount(950))
+        assertEquals("12 тыс.", formatCount(12_345))
+        assertEquals("1,2 млн", formatCount(1_234_567))
+        assertEquals("3 млн", formatCount(3_000_000))
+    }
+
+    @Test
+    fun `decimals keep the russian comma even without russian locale data`() {
+        val saved = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.US)
+        try {
+            assertEquals("1,5 ГБ", formatMemory(1536))
+            assertEquals("171,1 млн", formatCount(171_100_000))
+            assertEquals("2,3 ГБ", formatBytes(2_469_606_195L))
+        } finally {
+            java.util.Locale.setDefault(saved)
+        }
+    }
 }

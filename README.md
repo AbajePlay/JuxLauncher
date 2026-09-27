@@ -12,6 +12,7 @@ one-click FPS boost and auto-updates.*
 
 - **Все версии Minecraft** — релизы, снапшоты, alpha и beta, как в официальном лаунчере
 - **Моды без возни** — Fabric, Quilt, Forge и NeoForge прямо в списке версий
+- **Каталог модов Modrinth** — поиск, установка с зависимостями и обновление модов прямо в лаунчере
 - **FPS-буст одной кнопкой** — Sodium, Lithium, FerriteCore, EntityCulling, ImmediatelyFast и ModernFix
 - **Java ставится сама** — нужная версия для каждой версии игры
 - **Быстрый запуск** — повторная проверка файлов за миллисекунды, загрузка до 24 потоков

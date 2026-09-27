@@ -31,6 +31,7 @@ import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.SplashContent
 import ru.jux.launcher.ui.WindowChrome
 import ru.jux.launcher.ui.theme.JuxTheme
+import java.util.concurrent.TimeUnit
 import javax.swing.JOptionPane
 import kotlin.system.exitProcess
 
@@ -107,13 +108,20 @@ fun main(args: Array<String>) {
             LaunchedEffect(gameProcess) {
                 val process = gameProcess ?: return@LaunchedEffect
                 if (Settings.current.closeOnLaunch) {
-                    shutdownAndExit()
-                    return@LaunchedEffect
+                    val exitedEarly = withContext(Dispatchers.IO) {
+                        runCatching { process.waitFor(EARLY_EXIT_SECONDS, TimeUnit.SECONDS) }.getOrDefault(false)
+                    }
+                    if (!exitedEarly || process.exitValue() == 0) {
+                        shutdownAndExit()
+                        return@LaunchedEffect
+                    }
+                } else {
+                    Log.info("waiting for the game to exit, pid=${runCatching { process.pid() }.getOrDefault(-1)}")
+                    MemoryRelease.afterWindowClosed()
+                    withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
                 }
-                Log.info("waiting for the game to exit, pid=${runCatching { process.pid() }.getOrDefault(-1)}")
-                MemoryRelease.afterWindowClosed()
-                withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
-                Log.info("game exited, showing the launcher again")
+                Log.info("game exited with ${process.exitValue()}, showing the launcher again")
+                state.gameExited(process.exitValue())
                 shownDuringGame = false
                 gameProcess = null
             }
@@ -152,6 +160,8 @@ fun main(args: Array<String>) {
         }
     }
 }
+
+private const val EARLY_EXIT_SECONDS = 20L
 
 private fun bootstrap(args: Array<String>): SingleInstance {
     val migration = Paths.migrateLegacyLocation()

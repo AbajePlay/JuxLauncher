@@ -10,13 +10,14 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
+import ru.jux.launcher.launch.ArgumentBuilder
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.createDirectories
 
 object Http {
 
-    const val USER_AGENT = "JuxLauncher/1.0"
+    const val USER_AGENT = "AbajePlay/JuxLauncher/${ArgumentBuilder.LAUNCHER_VERSION} (juxmc.ru)"
 
     val client: OkHttpClient by lazy {
         val dispatcher = Dispatcher().apply {

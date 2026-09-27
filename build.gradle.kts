@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "ru.jux"
-version = "1.0.0"
+version = "1.1.0"
 
 kotlin {
     jvmToolchain(21)
@@ -86,8 +86,10 @@ compose.desktop {
         }
 
         buildTypes.release.proguard {
-            isEnabled.set(false)
+            version.set("7.7.0")
+            isEnabled.set(true)
             obfuscate.set(false)
+            optimize.set(false)
             configurationFiles.from(project.file("compose-desktop.pro"))
         }
     }
@@ -99,6 +101,15 @@ tasks.register<JavaExec>("renderScreens") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("ru.jux.launcher.dev.RenderScreensKt")
     args(layout.buildDirectory.dir("preview").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("smokeLoaders") {
+    group = "verification"
+    description = "Installs each version:loader from -Ptargets and starts the game up to the main menu"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("ru.jux.launcher.dev.LoaderSmokeKt")
+    (findProperty("smokeHome") as String?)?.let { systemProperty("user.home", it) }
+    args((findProperty("targets") as String? ?: "").split(',').filter { it.isNotBlank() })
 }
 
 val desktopInstallDir = File(System.getProperty("user.home"), "JuxLauncher")

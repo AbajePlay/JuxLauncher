@@ -79,6 +79,7 @@ import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.meta.LoaderKind
+import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.servers.ServerEntry
@@ -110,7 +111,16 @@ import kotlin.io.path.exists
 @Composable
 fun HomeScreen(state: LauncherState) {
     Column(Modifier.fillMaxSize().padding(JuxDimens.Gutter)) {
-        Banner(state.error, isError = true, onDismiss = { state.error = null })
+        Banner(
+            state.error,
+            isError = true,
+            onDismiss = {
+                state.error = null
+                state.crashed = null
+            },
+            actionLabel = state.crashed?.let { "Логи" },
+            onAction = { state.crashed?.let { state.showLogs(it) } },
+        )
         Banner(state.notice, isError = false, onDismiss = { state.notice = null })
         if (state.error != null || state.notice != null) Spacer(Modifier.height(12.dp))
 
@@ -221,6 +231,18 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             }
         }
 
+        if (entry.loader.isModded) {
+            val count = remember(entry, state.instanceRevision) { ModManager.count(state.gameDirOf(entry)) }
+            WithTooltip("Каталог модов Modrinth: поиск, установка и обновление модов этой сборки") {
+                ChoiceChip(
+                    label = if (count > 0) "Моды · $count" else "Моды",
+                    selected = false,
+                    onClick = { state.modal = Modal.Mods(entry) },
+                    icon = JuxIcons.Extension,
+                )
+            }
+        }
+
         val own = options.memoryMb
         WithTooltip(
             if (own != null) "Своя память этой сборки. Изменить — в настройках сборки."
@@ -290,6 +312,12 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
         close()
         state.showLogs(entry)
     })
+    if (entry.loader.isModded) {
+        JuxMenuItem("Моды…", icon = JuxIcons.Extension, onClick = {
+            close()
+            state.modal = Modal.Mods(entry)
+        })
+    }
     JuxMenuItem("Настройки сборки…", icon = Icons.Default.Build, onClick = {
         close()
         state.modal = Modal.InstanceSettings(entry)

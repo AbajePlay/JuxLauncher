@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -48,17 +50,63 @@ object Modrinth {
     )
 
     @Serializable
-    private data class Project(val id: String, val title: String = "")
+    data class Project(
+        val id: String,
+        val title: String = "",
+        val description: String = "",
+        @SerialName("icon_url") val iconUrl: String? = null,
+    )
 
-    fun versions(project: String, loader: String, gameVersion: String): List<Version> {
+    @Serializable
+    data class SearchHit(
+        @SerialName("project_id") val projectId: String,
+        val slug: String = "",
+        val title: String = "",
+        val description: String = "",
+        val author: String = "",
+        val downloads: Long = 0,
+        @SerialName("icon_url") val iconUrl: String? = null,
+    )
+
+    @Serializable
+    data class SearchPage(
+        val hits: List<SearchHit> = emptyList(),
+        val offset: Int = 0,
+        @SerialName("total_hits") val totalHits: Int = 0,
+    )
+
+    fun versions(project: String, loader: String, gameVersion: String): List<Version> =
+        versions(project, listOf(loader), gameVersion)
+
+    fun versions(project: String, loaders: List<String>, gameVersion: String): List<Version> {
         val url = "$API/project/$project/version".toHttpUrl().newBuilder()
-            .addQueryParameter("loaders", "[\"$loader\"]")
+            .addQueryParameter("loaders", loaders.joinToString(",", "[", "]") { "\"$it\"" })
             .addQueryParameter("game_versions", "[\"$gameVersion\"]")
             .build()
             .toString()
         return Json.decodeFromString<List<Version>>(Http.getString(url))
             .sortedByDescending { it.datePublished }
     }
+
+    fun search(query: String, loaders: List<String>, gameVersion: String, offset: Int, limit: Int = PAGE): SearchPage {
+        val facets = buildJsonArray {
+            add(buildJsonArray { add("project_type:mod") })
+            add(buildJsonArray { loaders.forEach { add("categories:$it") } })
+            add(buildJsonArray { add("versions:$gameVersion") })
+            add(buildJsonArray { add("client_side:required"); add("client_side:optional") })
+        }
+        val url = "$API/search".toHttpUrl().newBuilder()
+            .addQueryParameter("query", query.trim())
+            .addQueryParameter("facets", facets.toString())
+            .addQueryParameter("index", if (query.isBlank()) "downloads" else "relevance")
+            .addQueryParameter("offset", offset.toString())
+            .addQueryParameter("limit", limit.toString())
+            .build()
+            .toString()
+        return Json.decodeFromString<SearchPage>(Http.getString(url))
+    }
+
+    const val PAGE = 20
 
     fun pick(versions: List<Version>): Version? =
         versions.firstOrNull { it.versionType == "release" }
@@ -73,12 +121,25 @@ object Modrinth {
         return Json.decodeFromString<Map<String, Version>>(Http.postJson("$API/version_files", body.toString()))
     }
 
-    fun titles(ids: Collection<String>): Map<String, String> {
-        if (ids.isEmpty()) return emptyMap()
+    fun latestVersions(sha1s: Collection<String>, loaders: List<String>, gameVersion: String): Map<String, Version> {
+        if (sha1s.isEmpty()) return emptyMap()
+        val body = buildJsonObject {
+            put("hashes", JsonArray(sha1s.map { JsonPrimitive(it) }))
+            put("algorithm", "sha1")
+            put("loaders", JsonArray(loaders.map { JsonPrimitive(it) }))
+            put("game_versions", buildJsonArray { add(gameVersion) })
+        }
+        return Json.decodeFromString<Map<String, Version>>(Http.postJson("$API/version_files/update", body.toString()))
+    }
+
+    fun projects(ids: Collection<String>): List<Project> {
+        if (ids.isEmpty()) return emptyList()
         val url = "$API/projects".toHttpUrl().newBuilder()
             .addQueryParameter("ids", ids.joinToString(",", "[", "]") { "\"$it\"" })
             .build()
             .toString()
-        return Json.decodeFromString<List<Project>>(Http.getString(url)).associate { it.id to it.title }
+        return Json.decodeFromString<List<Project>>(Http.getString(url))
     }
+
+    fun titles(ids: Collection<String>): Map<String, String> = projects(ids).associate { it.id to it.title }
 }

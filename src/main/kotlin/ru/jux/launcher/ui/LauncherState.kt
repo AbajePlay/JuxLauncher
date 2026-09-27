@@ -34,6 +34,7 @@ import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.launch.GameLauncher
+import ru.jux.launcher.logs.CrashHints
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderSupport
@@ -69,6 +70,7 @@ data class VersionGroup(
 
 sealed interface Modal {
     data class InstanceSettings(val entry: VersionEntry) : Modal
+    data class Mods(val entry: VersionEntry) : Modal
     data class Delete(val entry: VersionEntry) : Modal
     data class Logs(val gameDir: Path?, val title: String, val source: LogSource) : Modal
 }
@@ -122,6 +124,7 @@ class LauncherState(
 
     var error by mutableStateOf<String?>(null)
     var notice by mutableStateOf<String?>(null)
+    var crashed by mutableStateOf<VersionEntry?>(null)
 
     var modal by mutableStateOf<Modal?>(null)
 
@@ -142,6 +145,8 @@ class LauncherState(
     var onGameStarted: (Process) -> Unit = {}
 
     var onQuit: () -> Unit = {}
+
+    private var lastLaunch: Pair<VersionEntry, Path>? = null
 
     private var job: Job? = null
     private var jobToken: Any? = null
@@ -371,6 +376,14 @@ class LauncherState(
         finishJob()
     }
 
+    fun gameExited(exitCode: Int) {
+        if (exitCode == 0) return
+        val (entry, logFile) = lastLaunch ?: return
+        Log.warn("game exited with code $exitCode")
+        error = CrashHints.explain(logFile, entry.loader, entry.id, exitCode)
+        crashed = entry
+    }
+
     fun consumePendingPlay(): Boolean = pendingPlay.also { pendingPlay = false }
 
     fun play(serverAddress: String? = null) {
@@ -402,6 +415,7 @@ class LauncherState(
             if (notices.isNotEmpty()) notice = notices.joinToString("\n")
             refreshInstalled()
             entry?.let(::instanceChanged)
+            lastLaunch = entry?.let { it to result.logFile }
             onGameStarted(result.process)
         }
     }
@@ -484,6 +498,8 @@ class LauncherState(
         }
         instanceChanged(entry)
     }
+
+    fun modsChanged(entry: VersionEntry) = instanceChanged(entry)
 
     fun setInstanceMemory(entry: VersionEntry, memoryMb: Int?) {
         InstanceStore.update(gameDirOf(entry)) { it.copy(memoryMb = memoryMb) }

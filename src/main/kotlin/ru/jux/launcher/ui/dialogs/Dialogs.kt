@@ -82,6 +82,7 @@ fun ModalHost(state: LauncherState) {
     when (val modal = state.modal) {
         null -> Unit
         is Modal.InstanceSettings -> InstanceDialog(state, modal.entry)
+        is Modal.Mods -> ModsDialog(state, modal.entry)
         is Modal.Delete -> DeleteDialog(state, modal.entry)
         is Modal.Logs -> LogDialog(state, modal)
     }
