@@ -11,6 +11,7 @@ import ru.jux.launcher.activity.PlayHistory
 import ru.jux.launcher.core.NoticeAction
 import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.core.Notices
+import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.ui.App
@@ -20,6 +21,8 @@ import ru.jux.launcher.ui.Screen
 import ru.jux.launcher.ui.SplashContent
 import ru.jux.launcher.ui.theme.JuxTheme
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import kotlin.system.exitProcess
 
 private const val FRAME_NANOS = 16_000_000L
@@ -31,7 +34,9 @@ fun main(args: Array<String>) {
 
     Notices.file = null
     PlayHistory.cacheFile = null
-    PlayHistory.historyFile = null
+    PlayHistory.historyFile = File(out, "activity-preview.json").toPath().also { copy ->
+        runCatching { Files.copy(Paths.root.resolve("activity.json"), copy, StandardCopyOption.REPLACE_EXISTING) }
+    }
     val preloaded = runBlocking { Preloader.run { _, _ -> } }
         .copy(manifestStale = false, loaderSupportStale = false)
     val state = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded)
@@ -90,6 +95,9 @@ fun main(args: Array<String>) {
         if (screen == Screen.NOTICES) state.openNotices() else state.screen = screen
         render(screen.name.lowercase(), 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     }
+
+    state.screen = Screen.ACTIVITY
+    render("activity-tall", 1040, 1000) { JuxTheme { App(state, onGameStarted = {}) } }
 
     state.screen = Screen.HOME
     val entry = state.currentEntry()

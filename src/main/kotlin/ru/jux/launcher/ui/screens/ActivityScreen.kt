@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -95,7 +96,10 @@ fun ActivityScreen(state: LauncherState) {
         StatRow(stats)
         HeatmapCard(stats)
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            VersionsCard(stats, Modifier.weight(1f).fillMaxHeight())
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                VersionsCard(stats, Modifier.fillMaxWidth())
+                ServersCard(stats, Modifier.fillMaxWidth().weight(1f))
+            }
             RecentCard(stats, Modifier.weight(1.25f).fillMaxHeight())
         }
     }
@@ -323,6 +327,60 @@ private fun VersionsCard(stats: ActivityStats?, modifier: Modifier) {
                                     .fillMaxHeight()
                                     .clip(PillShape)
                                     .background(loaderTone(version.loader)),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServersCard(stats: ActivityStats?, modifier: Modifier) {
+    Card(modifier) {
+        Column {
+            SectionTitle("Любимые серверы")
+            Spacer(Modifier.height(14.dp))
+            val servers = stats?.servers.orEmpty()
+            if (servers.isEmpty()) {
+                Text(
+                    if (stats == null) "Считаю…" else "Пока не заходил на серверы",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JuxColors.TextMuted,
+                )
+            }
+            val max = servers.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                servers.forEach { (address, millis) ->
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier.size(22.dp).clip(CircleShape).background(JuxColors.Success.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(JuxIcons.Server, null, tint = JuxColors.Success, modifier = Modifier.size(12.dp))
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                address,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = JuxColors.Text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(formatPlayTime(millis), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextSoft)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Box(Modifier.fillMaxWidth().height(8.dp).clip(PillShape).background(JuxColors.SurfaceHigh)) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth((millis.toFloat() / max).coerceIn(0.04f, 1f))
+                                    .fillMaxHeight()
+                                    .clip(PillShape)
+                                    .background(JuxColors.Success),
                             )
                         }
                     }
