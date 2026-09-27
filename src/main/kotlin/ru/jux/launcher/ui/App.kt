@@ -292,33 +292,45 @@ private fun OnlineLine() {
     val count by OnlineCounter.count.collectAsState()
     val current = count ?: return
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.Top,
+        Modifier
+            .padding(bottom = 10.dp)
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(PillShape)
+            .background(JuxColors.Success.copy(alpha = 0.10f))
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.padding(top = 8.dp).size(10.dp).clip(CircleShape).background(JuxColors.Success.copy(alpha = 0.22f)),
+            Modifier.size(12.dp).clip(CircleShape).background(JuxColors.Success.copy(alpha = 0.25f)),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(JuxColors.Success))
         }
         Spacer(Modifier.width(10.dp))
-        Column {
-            Text(
-                "${current.online} онлайн",
+        Text(
+            current.online.toString(),
+            color = JuxColors.Text,
+            style = TextStyle(
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 15.sp,
+                lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+            ),
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "онлайн",
+            color = JuxColors.TextSoft,
+            style = TextStyle(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = JuxColors.TextSoft,
-                maxLines = 1,
-            )
-            if (current.playing > 0) {
-                Text(
-                    "${current.playing} в игре",
-                    fontSize = 11.sp,
-                    color = JuxColors.TextMuted,
-                    maxLines = 1,
-                )
-            }
-        }
+                lineHeight = 13.sp,
+                lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+            ),
+            maxLines = 1,
+        )
     }
 }
 
