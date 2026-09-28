@@ -13,6 +13,8 @@ import ru.jux.launcher.meta.LoaderRepository
 import ru.jux.launcher.meta.LoaderSupport
 import ru.jux.launcher.meta.VersionManifest
 import ru.jux.launcher.meta.VersionManifestRepository
+import ru.jux.launcher.packs.Modpack
+import ru.jux.launcher.packs.Modpacks
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.getLastModifiedTime
@@ -26,6 +28,7 @@ data class PreloadResult(
     val installed: Map<String, Long>,
     val profiles: Set<String>,
     val loaderSupport: LoaderSupport = LoaderSupport(),
+    val packs: List<Modpack> = emptyList(),
     val manifestStale: Boolean = false,
     val loaderSupportStale: Boolean = false,
 )
@@ -65,6 +68,7 @@ object Preloader {
 
         onStep(0.90f, loaders)
         val (installed, profiles) = withContext(Dispatchers.IO) { scanInstalled() }
+        val packs = withContext(Dispatchers.IO) { Modpacks.list() }
 
         onStep(1f, loaders)
         val elapsed = System.currentTimeMillis() - startedAt
@@ -81,6 +85,7 @@ object Preloader {
             installed = installed,
             profiles = profiles,
             loaderSupport = loaderSupport,
+            packs = packs,
             manifestStale = manifestStale,
             loaderSupportStale = cachedSupport != null && !cachedSupport.fresh,
         )

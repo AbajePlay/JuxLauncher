@@ -31,7 +31,6 @@ data class VersionJson(
     val minimumLauncherVersion: Int = 0,
     val releaseTime: String? = null,
     val time: String? = null,
-    val complianceLevel: Int = 0,
 ) {
     val assetsId: String get() = assetIndex?.id ?: assets ?: "legacy"
 
@@ -56,7 +55,6 @@ data class VersionJson(
         minimumLauncherVersion = maxOf(minimumLauncherVersion, parent.minimumLauncherVersion),
         releaseTime = releaseTime ?: parent.releaseTime,
         time = time ?: parent.time,
-        complianceLevel = maxOf(complianceLevel, parent.complianceLevel),
     )
 }
 
@@ -82,7 +80,6 @@ data class AssetIndexRef(
     val id: String = "legacy",
     val sha1: String? = null,
     val size: Long = 0,
-    val totalSize: Long = 0,
     val url: String = "",
 )
 
@@ -112,8 +109,6 @@ data class Library(
     val extract: Extract? = null,
     val clientreq: Boolean? = null,
 ) {
-    val isNativeOnly: Boolean get() = natives.isNotEmpty() && downloads?.artifact == null
-
     fun appliesTo(env: RuleEnvironment): Boolean = Rule.allows(rules, env)
 
     fun nativeClassifier(env: RuleEnvironment): String? =

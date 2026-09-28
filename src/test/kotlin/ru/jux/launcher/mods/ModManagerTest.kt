@@ -13,8 +13,8 @@ import kotlin.io.path.writeText
 
 class ModManagerTest {
 
-    private fun mod(file: Path, enabled: Boolean) = InstalledMod(
-        file = file, enabled = enabled, sha1 = "", projectId = null, title = "Test", versionNumber = "",
+    private fun mod(file: Path, enabled: Boolean) = InstalledItem(
+        file = file, kind = ContentKind.MOD, enabled = enabled, sha1 = "", projectId = null, title = "Test", versionNumber = "",
         iconUrl = null, fromBoost = false, update = null,
     )
 

@@ -1,6 +1,5 @@
 package ru.jux.launcher.meta
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import ru.jux.launcher.core.Json
@@ -32,11 +31,8 @@ data class ManifestVersion(
     val time: String = "",
     val releaseTime: String = "",
     val sha1: String? = null,
-    @SerialName("complianceLevel") val complianceLevel: Int = 0,
 ) {
     val kind: VersionKind get() = VersionKind.of(type)
-
-    val isOld: Boolean get() = complianceLevel < 1
 }
 
 enum class VersionKind(val label: String) {

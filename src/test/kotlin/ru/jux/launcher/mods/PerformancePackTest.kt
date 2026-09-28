@@ -2,9 +2,19 @@ package ru.jux.launcher.mods
 
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import ru.jux.launcher.instance.InstanceStore
+import ru.jux.launcher.instance.ManagedMod
+import java.nio.file.Path
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.outputStream
 
 class PerformancePackTest {
 
@@ -100,11 +110,37 @@ class PerformancePackTest {
     }
 
     @Test
-    fun `an upstream file name can never leave the mods folder`() {
-        assertEquals("sodium-fabric-0.6.13+mc1.21.4.jar", PerformancePack.safeFileName("sodium-fabric-0.6.13+mc1.21.4.jar"))
-        assertNull(PerformancePack.safeFileName("../evil.jar"))
-        assertNull(PerformancePack.safeFileName("sub/dir.jar"))
-        assertNull(PerformancePack.safeFileName("C:evil.jar"))
-        assertNull(PerformancePack.safeFileName("readme.txt"))
+    fun `turning the boost off keeps what other mods still need`(@TempDir game: Path) {
+        val mods = game.resolve("mods").createDirectories()
+        fun jar(name: String, json: String) = ZipOutputStream(mods.resolve(name).outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("fabric.mod.json"))
+            zip.write(json.toByteArray())
+            zip.closeEntry()
+        }
+        jar("sodium.jar", """{"id":"sodium","version":"0.8.12"}""")
+        jar("lithium.jar", """{"id":"lithium","version":"0.21.0"}""")
+        jar("iris.jar", """{"id":"iris","version":"1.11.4","depends":{"sodium":">=0.8"}}""")
+        InstanceStore.update(game) { options ->
+            options.copy(fpsBoost = true, boostMods = listOf("sodium.jar", "lithium.jar").map { ManagedMod(it, it, it, "0") })
+        }
+
+        PerformancePack.remove(game)
+
+        assertTrue(mods.resolve("sodium.jar").exists())
+        assertFalse(mods.resolve("lithium.jar").exists())
+        assertTrue(mods.resolve("iris.jar").exists())
+        assertFalse(InstanceStore.get(game).fpsBoost)
+    }
+
+    @Test
+    fun `an upstream file name can never leave its folder`() {
+        assertEquals("sodium-fabric-0.6.13+mc1.21.4.jar", ContentKind.MOD.safeName("sodium-fabric-0.6.13+mc1.21.4.jar"))
+        assertNull(ContentKind.MOD.safeName("../evil.jar"))
+        assertNull(ContentKind.MOD.safeName("sub/dir.jar"))
+        assertNull(ContentKind.MOD.safeName("sub\\dir.jar"))
+        assertNull(ContentKind.MOD.safeName("C:evil.jar"))
+        assertNull(ContentKind.MOD.safeName("readme.txt"))
+        assertEquals("BSL_v10.zip", ContentKind.SHADER.safeName("BSL_v10.zip"))
+        assertNull(ContentKind.RESOURCE_PACK.safeName("pack.jar"))
     }
 }

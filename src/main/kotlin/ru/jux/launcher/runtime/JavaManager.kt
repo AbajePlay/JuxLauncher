@@ -133,9 +133,6 @@ object JavaManager {
         }
     }
 
-    fun installedVersionName(component: String): String? =
-        runCatching { runtimeDir(component).resolve(MARKER).readText().takeIf { it.isNotBlank() } }.getOrNull()
-
     fun findLocal(majorVersion: Int): Path? {
         val candidates = buildList {
             System.getenv("JAVA_HOME")?.let { add(Path.of(it)) }

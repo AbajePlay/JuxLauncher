@@ -26,13 +26,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.activity.ActivityStats
 import ru.jux.launcher.activity.PlayHistory
+import ru.jux.launcher.auth.Account
 import ru.jux.launcher.auth.AccountManager
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Notice
 import ru.jux.launcher.core.NoticeAction
 import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.core.Notices
-import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.PlayRequest
 import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Preloader
@@ -60,6 +60,9 @@ import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.net.DownloadProgress
+import ru.jux.launcher.packs.Modpack
+import ru.jux.launcher.packs.Modpacks
+import ru.jux.launcher.packs.PackSource
 import ru.jux.launcher.servers.ServerEntry
 import ru.jux.launcher.servers.ServerPing
 import ru.jux.launcher.servers.ServerStatus
@@ -67,24 +70,31 @@ import ru.jux.launcher.servers.Servers
 import ru.jux.launcher.update.UpdateManifest
 import ru.jux.launcher.update.Updater
 
-enum class Screen { HOME, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
+enum class Screen { HOME, PACKS, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
 
 data class VersionEntry(
     val version: ManifestVersion,
     val loader: LoaderKind,
+    val pack: Modpack? = null,
 ) {
     val id: String get() = version.id
-    val key: String get() = "${version.id}#${loader.name}"
-    val label: String get() = if (loader.isModded) "$id ${loader.label}" else id
+    val key: String get() = pack?.let { PACK_KEY + it.id } ?: "${version.id}#${loader.name}"
+    val title: String get() = pack?.title ?: id
+    val label: String get() = pack?.title ?: if (loader.isModded) "$id ${loader.label}" else id
 }
+
+private const val PACK_KEY = "pack:"
+const val PACKS_GROUP = "Сборки"
 
 data class VersionGroup(
     val key: String,
     val entries: List<VersionEntry>,
 )
 
+enum class CatalogTab { MODS, SHADERS, RESOURCE_PACKS, INSTALLED }
+
 sealed interface Modal {
-    data class Mods(val entry: VersionEntry) : Modal
+    data class Catalog(val entry: VersionEntry, val tab: CatalogTab? = null) : Modal
     data class Delete(val entry: VersionEntry) : Modal
     data class Logs(val gameDir: Path?, val title: String, val source: LogSource) : Modal
 }
@@ -112,6 +122,18 @@ class LauncherState(
     var expandedGroups by mutableStateOf<Set<String>>(emptySet())
 
     var selectedLoader by mutableStateOf(LoaderKind.VANILLA)
+
+    var selectedPackId by mutableStateOf<String?>(null)
+        private set
+
+    var packs by mutableStateOf<List<Modpack>>(emptyList())
+        private set
+
+    var packUpdates by mutableStateOf<Map<String, PackSource>>(emptyMap())
+        private set
+
+    var installingPack by mutableStateOf<String?>(null)
+        private set
 
     var loaderSupport by mutableStateOf(LoaderSupport())
 
@@ -188,12 +210,10 @@ class LauncherState(
             }
         }
         playRequest?.let { request ->
-            val version = versions.firstOrNull { it.id == request.versionId }
-            if (version != null) {
-                selectEntry(VersionEntry(version, request.loader))
+            val entry = requested(request)
+            if (entry != null) {
+                selectEntry(entry)
                 pendingPlay = true
-            } else {
-                fail("Версии ${request.versionId} из ярлыка нет в списке Mojang")
             }
         }
     }
@@ -203,10 +223,15 @@ class LauncherState(
         installed = preloaded.installed
         profiles = preloaded.profiles
         loaderSupport = preloaded.loaderSupport
+        packs = preloaded.packs
         selectStartingEntry(preloaded.manifest.latest.release)
-        expandedGroups = setOfNotNull(groups().firstOrNull()?.key)
+        expandedGroups = defaultExpanded()
         if (versions.isEmpty()) fail(NO_VERSIONS)
+        if (packs.isNotEmpty()) checkPackUpdates()
     }
+
+    private fun defaultExpanded(): Set<String> =
+        setOfNotNull(PACKS_GROUP, groups().firstOrNull { it.key != PACKS_GROUP }?.key)
 
     private fun refreshInBackground(refreshVersions: Boolean, refreshLoaders: Boolean) {
         scope.launch {
@@ -239,13 +264,17 @@ class LauncherState(
         versions = fresh.versions
         if (wasEmpty) {
             selectStartingEntry(fresh.latest.release)
-            expandedGroups = setOfNotNull(groups().firstOrNull()?.key)
+            expandedGroups = defaultExpanded()
             toast?.takeIf { it.text == NO_VERSIONS }?.let { dismissToast(it.id) }
         }
         return true
     }
 
     private fun selectStartingEntry(latestRelease: String) {
+        Settings.current.lastPack?.let { id -> packs.firstOrNull { it.id == id } }?.let { pack ->
+            selectEntry(entryFor(pack))
+            return
+        }
         val remembered = selectedVersionId
         val rememberedLoader = LoaderKind.entries.firstOrNull { it.name == Settings.current.lastLoader }
             ?: LoaderKind.VANILLA
@@ -264,6 +293,7 @@ class LauncherState(
         }
         selectedVersionId = version
         selectedLoader = loader
+        selectedPackId = null
         refreshSelectedOptions()
     }
 
@@ -298,8 +328,12 @@ class LauncherState(
             .toList()
     }
 
-    fun groups(): List<VersionGroup> =
-        visibleVersions()
+    fun groups(): List<VersionGroup> {
+        val query = searchQuery.trim().lowercase()
+        val packEntries = packs
+            .filter { query.isEmpty() || query in it.title.lowercase() || query in it.gameVersion.lowercase() }
+            .map(::entryFor)
+        val versionGroups = visibleVersions()
             .groupBy { groupKeyOf(it) }
             .map { (key, items) ->
                 VersionGroup(
@@ -309,6 +343,8 @@ class LauncherState(
                     },
                 )
             }
+        return listOfNotNull(VersionGroup(PACKS_GROUP, packEntries).takeIf { packEntries.isNotEmpty() }) + versionGroups
+    }
 
     fun isExpanded(group: VersionGroup): Boolean = searchQuery.isNotBlank() || group.key in expandedGroups
 
@@ -319,33 +355,52 @@ class LauncherState(
     fun selectEntry(entry: VersionEntry) {
         selectedVersionId = entry.version.id
         selectedLoader = entry.loader
+        selectedPackId = entry.pack?.id
         refreshSelectedOptions()
     }
 
     fun isSelected(entry: VersionEntry): Boolean =
-        entry.version.id == selectedVersionId && entry.loader == selectedLoader
+        entry.pack?.id == selectedPackId && entry.version.id == selectedVersionId && entry.loader == selectedLoader
 
     fun currentEntry(): VersionEntry? {
+        selectedPackId?.let { id -> packs.firstOrNull { it.id == id } }?.let { return entryFor(it) }
         val id = selectedVersionId ?: return null
         return VersionEntry(versionById(id), selectedLoader)
     }
 
-    fun entryFor(versionId: String, loader: LoaderKind): VersionEntry = VersionEntry(versionById(versionId), loader)
+    fun entryFor(pack: Modpack): VersionEntry = VersionEntry(versionById(pack.gameVersion), pack.loader, pack)
 
     fun entryByKey(key: String): VersionEntry? {
+        if (key.startsWith(PACK_KEY)) return packs.firstOrNull { it.id == key.removePrefix(PACK_KEY) }?.let(::entryFor)
         val id = key.substringBeforeLast('#')
         val loader = LoaderKind.entries.firstOrNull { it.name == key.substringAfterLast('#') } ?: return null
         return entryFor(id, loader)
     }
 
+    fun entryFor(versionId: String, loader: LoaderKind): VersionEntry = VersionEntry(versionById(versionId), loader)
+
+    private fun requested(request: PlayRequest): VersionEntry? {
+        val entry = when (val id = request.pack) {
+            null -> versions.firstOrNull { it.id == request.versionId }?.let { VersionEntry(it, request.loader) }
+            else -> packs.firstOrNull { it.id == id }?.let(::entryFor)
+        }
+        if (entry == null) {
+            fail(
+                if (request.pack != null) "Сборки из ярлыка больше нет — установи её заново во вкладке «Сборки»"
+                else "Версии ${request.versionId} из ярлыка нет в списке Mojang"
+            )
+        }
+        return entry
+    }
+
     private fun versionById(id: String): ManifestVersion =
         versions.firstOrNull { it.id == id } ?: ManifestVersion(id = id, url = "")
 
-    fun gameDirOf(entry: VersionEntry): Path = Settings.gameDir(entry.id, entry.loader)
+    fun gameDirOf(entry: VersionEntry): Path = entry.pack?.let(Modpacks::dirOf) ?: Settings.gameDir(entry.id, entry.loader)
 
     private fun refreshSelectedOptions() {
-        val id = selectedVersionId ?: return
-        selectedOptions = InstanceStore.get(Settings.gameDir(id, selectedLoader))
+        val entry = currentEntry() ?: return
+        selectedOptions = InstanceStore.get(gameDirOf(entry))
     }
 
     private fun instanceChanged(entry: VersionEntry) {
@@ -445,10 +500,7 @@ class LauncherState(
     }
 
     suspend fun loadActivity() {
-        val roots = listOfNotNull(
-            Paths.instances,
-            Settings.current.customGameDir?.takeIf { it.isNotBlank() }?.let { Path.of(it) },
-        ).distinct()
+        val roots = Settings.gameRoots()
         activity = withContext(Dispatchers.IO) {
             runCatching { ActivityStats.of(PlayHistory.scan(roots)) }
                 .onFailure { Log.warn("activity scan failed: ${it.message}") }
@@ -478,7 +530,7 @@ class LauncherState(
         val entry = notice.entryKey?.let(::entryByKey)
         when (action) {
             NoticeAction.LOGS -> showLogs(entry)
-            NoticeAction.MODS -> entry?.let { modal = Modal.Mods(it) }
+            NoticeAction.MODS -> entry?.let { modal = Modal.Catalog(it, CatalogTab.INSTALLED) }
             NoticeAction.FIX_MODS -> entry?.let { fixMods(it, notice) }
             NoticeAction.PLAY_ANYWAY -> entry?.let {
                 Notices.resolve(notice.id)
@@ -507,7 +559,7 @@ class LauncherState(
 
     fun play(serverAddress: String? = null, skipModCheck: Boolean = false) {
         if (busy) return
-        val versionId = selectedVersionId ?: run {
+        val entry = currentEntry() ?: run {
             fail("Выберите версию")
             return
         }
@@ -516,50 +568,96 @@ class LauncherState(
             screen = Screen.ACCOUNTS
             return
         }
-        val loader = selectedLoader
-        val entry = currentEntry()
+        startJob(entry, "launch") { launch(entry, account, serverAddress, skipModCheck) }
+    }
 
-        startJob(entry, "launch") {
-            if (!skipModCheck && entry != null && entry.loader.isModded) {
-                val conflicts = withContext(Dispatchers.IO) {
-                    runCatching { ModCompat.conflictsIn(ModManager.modsDir(gameDirOf(entry))) }.getOrDefault(emptyList())
-                }
-                if (conflicts.isNotEmpty()) {
-                    fail(
-                        conflicts.take(3).joinToString("\n") { it.text },
-                        entry,
-                        "Игра не запущена: моды несовместимы",
-                        listOf(NoticeAction.FIX_MODS, NoticeAction.PLAY_ANYWAY),
-                    )
-                    return@startJob
-                }
+    private suspend fun launch(entry: VersionEntry, account: Account, serverAddress: String?, skipModCheck: Boolean) {
+        val gameDir = gameDirOf(entry)
+        if (!skipModCheck && entry.loader.isModded) {
+            val conflicts = withContext(Dispatchers.IO) {
+                runCatching { ModCompat.conflictsIn(ModManager.modsDir(gameDir)) }.getOrDefault(emptyList())
             }
-            val notices = ArrayList<String>()
-            val result = GameLauncher.launch(
-                versionId = versionId,
-                account = account,
-                loader = loader,
-                serverAddress = serverAddress,
-                onStage = ::stageChanged,
-                onProgress = { progress = it },
-                onNotice = { notices += it },
-            )
-            Settings.update { it.copy(lastVersionId = versionId, lastLoader = loader.name) }
-            notices.forEach { inform(it, entry, level = NoticeLevel.INFO) }
-            refreshInstalled()
-            entry?.let(::instanceChanged)
-            lastLaunch = entry?.let { it to result.logFile }
-            val playing = Presence.Playing(
-                versionId = versionId,
-                loaderLabel = loader.takeIf { it.isModded }?.label,
-                server = serverAddress?.let(GameEvents::display),
-                mods = if (loader.isModded) ModManager.count(Settings.gameDir(versionId, loader)) else 0,
-                startedAt = System.currentTimeMillis(),
-            )
-            DiscordPresence.show(playing)
-            OnlineCounter.setPlaying(true)
-            watchGame(result.process, result.logFile, playing)
-            onGameStarted(result.process)
+            if (conflicts.isNotEmpty()) {
+                fail(
+                    conflicts.take(3).joinToString("\n") { it.text },
+                    entry,
+                    "Игра не запущена: моды несовместимы",
+                    listOf(NoticeAction.FIX_MODS, NoticeAction.PLAY_ANYWAY),
+                )
+                return
+            }
+        }
+        val notices = ArrayList<String>()
+        val result = GameLauncher.launch(
+            versionId = entry.id,
+            account = account,
+            loader = entry.loader,
+            serverAddress = serverAddress,
+            gameDir = gameDir,
+            loaderVersion = entry.pack?.loaderVersion,
+            onStage = ::stageChanged,
+            onProgress = { progress = it },
+            onNotice = { notices += it },
+        )
+        Settings.update { it.copy(lastVersionId = entry.id, lastLoader = entry.loader.name, lastPack = entry.pack?.id) }
+        notices.forEach { inform(it, entry, level = NoticeLevel.INFO) }
+        refreshInstalled()
+        instanceChanged(entry)
+        lastLaunch = entry to result.logFile
+        val playing = Presence.Playing(
+            versionId = entry.id,
+            loaderLabel = entry.loader.takeIf { it.isModded }?.label,
+            server = serverAddress?.let(GameEvents::display),
+            mods = if (entry.loader.isModded) ModManager.count(gameDir) else 0,
+            startedAt = System.currentTimeMillis(),
+            pack = entry.pack?.title,
+        )
+        DiscordPresence.show(playing)
+        OnlineCounter.setPlaying(true)
+        watchGame(result.process, result.logFile, playing)
+        onGameStarted(result.process)
+    }
+
+    fun updatePack(pack: Modpack) {
+        packUpdates[pack.id]?.let { installPack(it) }
+    }
+
+    fun installPack(source: PackSource) {
+        if (busy) return
+        installingPack = source.projectId
+        startJob(packs.firstOrNull { it.id == source.id }?.let(::entryFor), "pack") {
+            try {
+                val pack = Modpacks.install(source, onStage = ::stageChanged, onProgress = { progress = it })
+                packs = withContext(Dispatchers.IO) { Modpacks.list() }
+                packUpdates = packUpdates - pack.id
+                val entry = entryFor(pack)
+                selectEntry(entry)
+                instanceChanged(entry)
+                inform("Сборка ${pack.title} ${pack.version} установлена", entry)
+            } finally {
+                installingPack = null
+            }
+        }
+    }
+
+    private fun reinstallPack(pack: Modpack) {
+        if (busy) return
+        scope.launch {
+            runCatching { Modpacks.reinstallSource(pack) }
+                .onSuccess { installPack(it) }
+                .onFailure { if (it !is CancellationException) fail(it.message, entryFor(pack), "Сборка не переустановилась") }
+        }
+    }
+
+    private fun checkPackUpdates() {
+        scope.launch {
+            val found = packs.mapNotNull { pack ->
+                runCatching { Modpacks.update(pack) }
+                    .onFailure { if (it !is CancellationException) Log.warn("pack update check for ${pack.id}: ${it.message}") }
+                    .getOrNull()
+                    ?.let { pack.id to it }
+            }.toMap()
+            packUpdates = found
         }
     }
 
@@ -586,15 +684,11 @@ class LauncherState(
     }
 
     fun playFromShortcut(request: PlayRequest, gameRunning: Boolean) {
-        val version = versions.firstOrNull { it.id == request.versionId } ?: run {
-            fail("Версии ${request.versionId} из ярлыка нет в списке Mojang")
-            return
-        }
         if (busy) {
             fail("Сначала дождитесь окончания загрузки ${busyEntry?.label.orEmpty()}".trimEnd())
             return
         }
-        val entry = VersionEntry(version, request.loader)
+        val entry = requested(request) ?: return
         selectEntry(entry)
         if (gameRunning) inform("Игра уже запущена. ${entry.label} выбрана — запустите её, когда закончите", entry, level = NoticeLevel.INFO) else play()
     }
@@ -607,6 +701,10 @@ class LauncherState(
 
     fun reinstall(entry: VersionEntry) {
         if (busy) return
+        entry.pack?.let {
+            reinstallPack(it)
+            return
+        }
         selectEntry(entry)
         startJob(entry, "reinstall") {
             val notices = ArrayList<String>()
@@ -617,6 +715,7 @@ class LauncherState(
             GameLauncher.prepare(
                 versionId = entry.id,
                 loader = entry.loader,
+                gameDir = gameDirOf(entry),
                 onStage = ::stageChanged,
                 onProgress = { progress = it },
                 onNotice = { notices += it },
@@ -630,6 +729,10 @@ class LauncherState(
     fun delete(entry: VersionEntry, withGameDir: Boolean) {
         if (busy && busyEntry == entry) {
             fail("Сначала дождитесь окончания загрузки ${entry.label}", entry)
+            return
+        }
+        entry.pack?.let {
+            deletePack(it)
             return
         }
         scope.launch {
@@ -656,6 +759,25 @@ class LauncherState(
         }
     }
 
+    private fun deletePack(pack: Modpack) {
+        scope.launch {
+            val trashed = try {
+                withContext(Dispatchers.IO) { Storage.deleteGameDir(Modpacks.dirOf(pack)) }
+            } catch (e: IOException) {
+                fail(e.message, entryFor(pack))
+                return@launch
+            }
+            if (selectedPackId == pack.id) {
+                selectedPackId = null
+                refreshSelectedOptions()
+            }
+            if (Settings.current.lastPack == pack.id) Settings.update { it.copy(lastPack = null) }
+            packs = withContext(Dispatchers.IO) { Modpacks.list() }
+            packUpdates = packUpdates - pack.id
+            inform(if (trashed) "Сборка ${pack.title} в корзине" else "Сборка ${pack.title} удалена")
+        }
+    }
+
     fun setBoost(entry: VersionEntry, enabled: Boolean) {
         val dir = gameDirOf(entry)
         if (enabled) {
@@ -664,6 +786,18 @@ class LauncherState(
             PerformancePack.remove(dir)
         }
         instanceChanged(entry)
+    }
+
+    fun enableBoost(entry: VersionEntry): Boolean {
+        if (InstanceStore.get(gameDirOf(entry)).fpsBoost) return false
+        setBoost(entry, true)
+        return true
+    }
+
+    fun supportsShaders(entry: VersionEntry): Boolean = when (entry.loader) {
+        LoaderKind.VANILLA -> entry.pack == null && loaderSupport.supports(LoaderKind.FABRIC, entry.id)
+        LoaderKind.FORGE -> false
+        else -> true
     }
 
     fun modsChanged(entry: VersionEntry) = instanceChanged(entry)
@@ -677,7 +811,9 @@ class LauncherState(
     fun createShortcut(entry: VersionEntry) {
         scope.launch {
             runCatching {
-                withContext(Dispatchers.IO) { Shortcuts.createOnDesktop("Minecraft ${entry.label}", entry.id, entry.loader) }
+                withContext(Dispatchers.IO) {
+                    Shortcuts.createOnDesktop(entry.pack?.title ?: "Minecraft ${entry.label}", entry.id, entry.loader, entry.pack?.id)
+                }
             }
                 .onSuccess { inform("Ярлык «${it.fileName.toString().removeSuffix(".lnk")}» на рабочем столе", entry) }
                 .onFailure { fail(it.message, entry) }
@@ -800,6 +936,7 @@ class LauncherState(
             "launch" to "Игра не запустилась",
             "reinstall" to "Переустановка не удалась",
             "fix mods" to "Моды не исправлены",
+            "pack" to "Сборка не установилась",
         )
         const val NO_VERSIONS = "Не удалось получить список версий. Проверьте интернет и перезапустите лаунчер."
     }

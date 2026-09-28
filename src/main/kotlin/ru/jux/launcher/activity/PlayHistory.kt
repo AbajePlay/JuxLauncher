@@ -8,6 +8,7 @@ import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.meta.LoaderKind
+import ru.jux.launcher.packs.Modpacks
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.file.Files
@@ -34,9 +35,10 @@ data class PlaySession(
     val start: Long,
     val end: Long,
     val server: String? = null,
+    val pack: String? = null,
 ) {
     val millis: Long get() = end - start
-    val label: String get() = if (loader.isModded) "$versionId ${loader.label}" else versionId
+    val label: String get() = pack ?: if (loader.isModded) "$versionId ${loader.label}" else versionId
 }
 
 object PlayHistory {
@@ -119,7 +121,8 @@ object PlayHistory {
     }
 
     private fun sessionsOf(instance: Path, zone: ZoneId, seen: MutableSet<String>): List<PlaySession> {
-        val (versionId, loader) = identify(instance.name)
+        val pack = Modpacks.read(instance)
+        val (versionId, loader) = pack?.let { it.gameVersion to it.loader } ?: identify(instance.name)
         val logs = runCatching { instance.resolve("logs").listDirectoryEntries() }.getOrDefault(emptyList())
         return logs.mapNotNull { file ->
             val date = ROLLED.matchEntire(file.name)?.let { m ->
@@ -134,7 +137,7 @@ object PlayHistory {
             val size = runCatching { file.fileSize() }.getOrDefault(-1)
             val modified = runCatching { file.getLastModifiedTime().toMillis() }.getOrDefault(-1)
             cache[key]?.takeIf { it.size == size && it.modified == modified }?.let { return@mapNotNull it.session }
-            val session = runCatching { read(file, date, zone, instance.name, versionId, loader) }
+            val session = runCatching { read(file, date, zone, instance.name, versionId, loader, pack?.title) }
                 .onFailure { Log.warn("activity: could not read ${file.name}: ${it.message}") }
                 .getOrNull()
             cache[key] = Cached(size, modified, session)
@@ -142,10 +145,18 @@ object PlayHistory {
         }
     }
 
-    private fun read(file: Path, date: LocalDate, zone: ZoneId, instance: String, versionId: String, loader: LoaderKind): PlaySession? {
+    private fun read(
+        file: Path,
+        date: LocalDate,
+        zone: ZoneId,
+        instance: String,
+        versionId: String,
+        loader: LoaderKind,
+        pack: String?,
+    ): PlaySession? {
         val stream = Files.newInputStream(file).let { if (file.name.endsWith(".gz")) GZIPInputStream(it) else it }
         return BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
-            parse(reader.lineSequence(), date, zone, instance, versionId, loader)
+            parse(reader.lineSequence(), date, zone, instance, versionId, loader, pack)
         }
     }
 
@@ -156,6 +167,7 @@ object PlayHistory {
         instance: String,
         versionId: String,
         loader: LoaderKind,
+        pack: String? = null,
     ): PlaySession? {
         var first: Long? = null
         var last: Long? = null
@@ -170,7 +182,7 @@ object PlayHistory {
         var end = last ?: return null
         if (end < start) end += DAY_MILLIS
         if (end - start < MIN_SESSION_MILLIS) return null
-        return PlaySession(instance, versionId, loader, start, end, server)
+        return PlaySession(instance, versionId, loader, start, end, server, pack)
     }
 
     private fun timestamp(line: String, date: LocalDate, zone: ZoneId): Long? {

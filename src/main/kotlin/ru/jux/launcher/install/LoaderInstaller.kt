@@ -36,13 +36,14 @@ object LoaderInstaller {
         kind: LoaderKind,
         gameVersion: String,
         javaExecutable: Path,
+        pinned: String? = null,
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
     ): String = withContext(Dispatchers.IO) {
         if (kind == LoaderKind.VANILLA) return@withContext gameVersion
 
-        onStage("Ищу последнюю сборку ${kind.label}")
-        val loaderVersion = LoaderRepository.latestBuild(kind, gameVersion)
+        if (pinned == null) onStage("Ищу последнюю сборку ${kind.label}")
+        val loaderVersion = pinned ?: LoaderRepository.latestBuild(kind, gameVersion)
         if (loaderVersion == null) {
             installedProfile(kind, gameVersion)?.let {
                 Log.warn("${kind.label} builds for $gameVersion unavailable, launching installed $it")

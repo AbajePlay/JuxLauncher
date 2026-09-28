@@ -32,7 +32,6 @@ data class UpdateManifest(
     val url: String,
     val sha256: String,
     val size: Long = 0,
-    val notes: String = "",
 )
 
 sealed interface UpdateState {

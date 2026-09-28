@@ -4,9 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -82,6 +79,7 @@ import ru.jux.launcher.ui.screens.AccountsScreen
 import ru.jux.launcher.ui.screens.ActivityScreen
 import ru.jux.launcher.ui.screens.HomeScreen
 import ru.jux.launcher.ui.screens.NoticesScreen
+import ru.jux.launcher.ui.screens.PacksScreen
 import ru.jux.launcher.ui.screens.SettingsScreen
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
@@ -131,6 +129,7 @@ private fun ScreenHost(state: LauncherState) {
     ) { screen ->
         when (screen) {
             Screen.HOME -> HomeScreen(state)
+            Screen.PACKS -> PacksScreen(state)
             Screen.ACTIVITY -> ActivityScreen(state)
             Screen.NOTICES -> NoticesScreen(state)
             Screen.SETTINGS -> SettingsScreen(state)
@@ -179,6 +178,7 @@ private fun NavRail(state: LauncherState) {
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NavItem("Играть", Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
+            NavItem("Сборки", JuxIcons.Package, state.screen == Screen.PACKS) { state.screen = Screen.PACKS }
             NavItem("Активность", JuxIcons.Activity, state.screen == Screen.ACTIVITY) { state.screen = Screen.ACTIVITY }
             NavItem(
                 "Уведомления",

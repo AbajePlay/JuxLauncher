@@ -55,6 +55,11 @@ object Storage {
         return true
     }
 
+    fun discard(path: Path) {
+        val trashed = trashAvailable && runCatching { systemTrash(path) }.getOrDefault(false)
+        if (!trashed) deleteTree(path)
+    }
+
     private fun systemTrash(path: Path): Boolean = Desktop.getDesktop().moveToTrash(path.toFile())
 
     fun hasWorlds(gameDir: Path): Boolean = runCatching {

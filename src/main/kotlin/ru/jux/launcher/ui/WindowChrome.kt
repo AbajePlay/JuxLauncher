@@ -5,6 +5,7 @@ import com.sun.jna.Pointer
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.win32.StdCallLibrary
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.Shell
 import ru.jux.launcher.ui.components.Brand
 import ru.jux.launcher.ui.theme.JuxColors
 import java.awt.Window
@@ -21,10 +22,8 @@ object WindowChrome {
     private const val CAPTION_COLOR = 35
     private const val TEXT_COLOR = 36
 
-    private val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
-
     fun applyDark(window: Window) {
-        if (!isWindows) return
+        if (!Shell.isWindows) return
         runCatching {
             val hwnd = Native.getComponentPointer(window) ?: return
             val dwm = Native.load("dwmapi", Dwmapi::class.java)

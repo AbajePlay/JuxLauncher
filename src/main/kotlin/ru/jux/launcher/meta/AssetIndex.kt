@@ -14,9 +14,7 @@ data class AssetIndex(
 data class AssetObject(
     val hash: String,
     val size: Long = 0,
-) {
-    val relativePath: String get() = "${hash.substring(0, 2)}/$hash"
-}
+)
 
 object AssetEndpoints {
     const val RESOURCES = "https://resources.download.minecraft.net"

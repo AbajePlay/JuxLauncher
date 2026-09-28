@@ -25,6 +25,8 @@ object Modrinth {
         @SerialName("version_number") val versionNumber: String = "",
         @SerialName("version_type") val versionType: String = "release",
         @SerialName("date_published") val datePublished: String = "",
+        @SerialName("game_versions") val gameVersions: List<String> = emptyList(),
+        val loaders: List<String> = emptyList(),
         val files: List<VersionFile> = emptyList(),
         val dependencies: List<Dependency> = emptyList(),
     ) {
@@ -66,6 +68,8 @@ object Modrinth {
         val author: String = "",
         val downloads: Long = 0,
         @SerialName("icon_url") val iconUrl: String? = null,
+        val categories: List<String> = emptyList(),
+        val versions: List<String> = emptyList(),
     )
 
     @Serializable
@@ -75,25 +79,31 @@ object Modrinth {
         @SerialName("total_hits") val totalHits: Int = 0,
     )
 
-    fun versions(project: String, loader: String, gameVersion: String): List<Version> =
-        versions(project, listOf(loader), gameVersion)
-
-    fun versions(project: String, loaders: List<String>, gameVersion: String): List<Version> {
+    fun versions(project: String, loaders: List<String> = emptyList(), gameVersion: String? = null): List<Version> {
         val url = "$API/project/$project/version".toHttpUrl().newBuilder()
-            .addQueryParameter("loaders", loaders.joinToString(",", "[", "]") { "\"$it\"" })
-            .addQueryParameter("game_versions", "[\"$gameVersion\"]")
+            .apply { if (loaders.isNotEmpty()) addQueryParameter("loaders", loaders.joinToString(",", "[", "]") { "\"$it\"" }) }
+            .apply { if (gameVersion != null) addQueryParameter("game_versions", "[\"$gameVersion\"]") }
             .build()
             .toString()
         return Json.decodeFromString<List<Version>>(Http.getString(url))
             .sortedByDescending { it.datePublished }
     }
 
-    fun search(query: String, loaders: List<String>, gameVersion: String, offset: Int, limit: Int = PAGE): SearchPage {
+    fun version(id: String): Version = Json.decodeFromString<Version>(Http.getString("$API/version/$id"))
+
+    fun search(
+        projectType: String,
+        query: String,
+        categories: List<String>,
+        gameVersion: String?,
+        offset: Int,
+        limit: Int = PAGE,
+    ): SearchPage {
         val facets = buildJsonArray {
-            add(buildJsonArray { add("project_type:mod") })
-            add(buildJsonArray { loaders.forEach { add("categories:$it") } })
-            add(buildJsonArray { add("versions:$gameVersion") })
-            add(buildJsonArray { add("client_side:required"); add("client_side:optional") })
+            add(buildJsonArray { add("project_type:$projectType") })
+            if (categories.isNotEmpty()) add(buildJsonArray { categories.forEach { add("categories:$it") } })
+            if (gameVersion != null) add(buildJsonArray { add("versions:$gameVersion") })
+            if (projectType == "mod") add(buildJsonArray { add("client_side:required"); add("client_side:optional") })
         }
         val url = "$API/search".toHttpUrl().newBuilder()
             .addQueryParameter("query", query.trim())

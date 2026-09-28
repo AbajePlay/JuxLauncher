@@ -6,13 +6,9 @@ import ru.jux.launcher.meta.RuleEnvironment
 
 @Serializable
 data class RuntimeEntry(
-    val availability: Availability? = null,
     val manifest: Artifact? = null,
     val version: RuntimeVersion? = null,
 )
-
-@Serializable
-data class Availability(val group: Int = 0, val progress: Int = 100)
 
 @Serializable
 data class RuntimeVersion(val name: String = "", val released: String = "")
@@ -31,13 +27,11 @@ data class RuntimeFile(
 @Serializable
 data class RuntimeDownloads(
     val raw: Artifact? = null,
-    val lzma: Artifact? = null,
 )
 
 object JavaComponents {
     const val LEGACY = "jre-legacy"
     const val ALPHA = "java-runtime-alpha"
-    const val BETA = "java-runtime-beta"
     const val GAMMA = "java-runtime-gamma"
     const val DELTA = "java-runtime-delta"
 

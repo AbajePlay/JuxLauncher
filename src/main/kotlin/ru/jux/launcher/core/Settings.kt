@@ -21,6 +21,7 @@ data class LauncherSettings(
     val customGameDir: String? = null,
     val lastVersionId: String? = null,
     val lastLoader: String? = null,
+    val lastPack: String? = null,
     val forceVerify: Boolean = false,
     val installId: String? = null,
 )
@@ -75,9 +76,17 @@ object Settings {
 
     fun gameDir(gameVersion: String, loader: LoaderKind = LoaderKind.VANILLA): Path {
         val name = if (loader.isModded) "$gameVersion-${loader.name.lowercase()}" else gameVersion
-        current.customGameDir?.takeIf { it.isNotBlank() }?.let { custom ->
-            return Path.of(custom).resolve(name)
-        }
-        return Paths.instanceDir(name)
+        return customGameRoot()?.resolve(name) ?: Paths.instanceDir(name)
     }
+
+    fun packsDir(): Path = (customGameRoot() ?: Paths.instances).resolve(PACKS)
+
+    fun gameRoots(): List<Path> {
+        val roots = listOfNotNull(Paths.instances, customGameRoot()).distinct()
+        return (roots + roots.map { it.resolve(PACKS) }).distinct()
+    }
+
+    private fun customGameRoot(): Path? = current.customGameDir?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
+
+    private const val PACKS = "packs"
 }

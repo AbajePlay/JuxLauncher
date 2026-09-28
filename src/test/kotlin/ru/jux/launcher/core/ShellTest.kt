@@ -46,4 +46,13 @@ class ShellTest {
         assertEquals(PlayRequest("1.20.1", LoaderKind.VANILLA), PlayArguments.parse(arrayOf("--play", "1.20.1")))
         assertEquals(null, PlayArguments.parse(emptyArray()))
     }
+
+    @Test
+    fun `a pack shortcut names the pack as well`() {
+        assertEquals("--play \"26.2\" --loader fabric --pack \"cobblemon\"", PlayArguments.of("26.2", LoaderKind.FABRIC, "cobblemon"))
+        assertEquals(
+            PlayRequest("26.2", LoaderKind.FABRIC, "cobblemon"),
+            PlayArguments.parse(arrayOf("--play", "26.2", "--loader", "fabric", "--pack", "cobblemon")),
+        )
+    }
 }

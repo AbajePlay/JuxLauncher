@@ -39,11 +39,13 @@ object GameLauncher {
         account: Account,
         loader: LoaderKind = LoaderKind.VANILLA,
         serverAddress: String? = null,
+        gameDir: Path = Settings.gameDir(versionId, loader),
+        loaderVersion: String? = null,
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
         onNotice: (String) -> Unit = {},
     ): LaunchResult {
-        val prepared = prepare(versionId, loader, onStage, onProgress, onNotice)
+        val prepared = prepare(versionId, loader, gameDir, loaderVersion, onStage, onProgress, onNotice)
         withContext(Dispatchers.IO) { runCatching { ServerList.seedDefaults(prepared.gameDir) } }
 
         onStage("Проверка аккаунта")
@@ -79,6 +81,8 @@ object GameLauncher {
     suspend fun prepare(
         versionId: String,
         loader: LoaderKind = LoaderKind.VANILLA,
+        gameDir: Path = Settings.gameDir(versionId, loader),
+        loaderVersion: String? = null,
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
         onNotice: (String) -> Unit = {},
@@ -106,7 +110,7 @@ object GameLauncher {
             onProgress,
         )
 
-        val gameDir = Settings.gameDir(versionId, loader).also { it.createDirectories() }
+        gameDir.createDirectories()
         val options = InstanceStore.get(gameDir)
 
         val runLoader = if (options.fpsBoost && loader.supportsBoost) {
@@ -121,6 +125,7 @@ object GameLauncher {
                     kind = runLoader,
                     gameVersion = versionId,
                     javaExecutable = javaExecutable,
+                    pinned = loaderVersion.takeIf { runLoader == loader },
                     onStage = onStage,
                     onProgress = onProgress,
                 )

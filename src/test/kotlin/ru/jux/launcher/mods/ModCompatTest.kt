@@ -74,6 +74,10 @@ class ModCompatTest {
                "provides":["demo-api"],"breaks":{"iris":["<1.0","2.0.0"],"canvas":"*"}}"""
         ).jsonObject
         val meta = ModCompat.parse(json)!!
+        assertEquals(emptySet<String>(), meta.depends)
+        assertEquals(setOf("sodium", "fabricloader"), ModCompat.parse(
+            Json.parseToJsonElement("""{"id":"iris","version":"1","depends":{"sodium":">=0.8","fabricloader":"*"}}""").jsonObject,
+        )!!.depends)
         assertEquals("Demo", meta.name)
         assertEquals(setOf("demo-api"), meta.provides)
         assertEquals(listOf("<1.0", "2.0.0"), meta.breaks["iris"])

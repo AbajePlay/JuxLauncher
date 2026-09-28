@@ -149,11 +149,17 @@ private fun QuickPlayCard(state: LauncherState) {
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Text(
-                        entry?.id ?: "версия не выбрана",
-                        style = if (entry == null) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayMedium,
+                        entry?.title ?: "версия не выбрана",
+                        style = if (entry == null || entry.pack != null) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayMedium,
                         color = if (entry == null) JuxColors.TextMuted else JuxColors.Text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (entry != null && entry.loader.isModded) Tag(entry.loader.label, loaderColor(entry.loader))
+                    when {
+                        entry?.pack != null -> Tag("${entry.id} ${entry.loader.label}", loaderColor(entry.loader))
+                        entry != null && entry.loader.isModded -> Tag(entry.loader.label, loaderColor(entry.loader))
+                    }
                 }
                 if (entry != null) {
                     Spacer(Modifier.height(16.dp))
@@ -223,7 +229,7 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
     val options = state.selectedOptions
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (entry.loader.supportsBoost) {
+        if (entry.pack == null && entry.loader.supportsBoost) {
             val fabricReady = state.loaderSupport.supports(LoaderKind.FABRIC, entry.id)
             WithTooltip(boostHint(entry, options, fabricReady)) {
                 ChoiceChip(
@@ -236,13 +242,24 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             }
         }
 
-        if (entry.loader.isModded) {
-            WithTooltip("Каталог модов Modrinth: поиск, установка и обновление модов этой сборки") {
+        WithTooltip(catalogHint(entry)) {
+            ChoiceChip(
+                label = "Каталог",
+                selected = false,
+                onClick = { state.modal = Modal.Catalog(entry) },
+                icon = JuxIcons.Extension,
+            )
+        }
+
+        val pack = entry.pack
+        if (pack != null && pack.id in state.packUpdates) {
+            WithTooltip("Вышла ${state.packUpdates[pack.id]?.version.orEmpty()}. Миры, настройки и твои моды останутся".trim()) {
                 ChoiceChip(
-                    label = "Моды",
-                    selected = false,
-                    onClick = { state.modal = Modal.Mods(entry) },
-                    icon = JuxIcons.Extension,
+                    label = "Обновить сборку",
+                    selected = true,
+                    onClick = { state.updatePack(pack) },
+                    enabled = !state.busy,
+                    icon = Icons.Default.Refresh,
                 )
             }
         }
@@ -250,6 +267,10 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
         EntryMenuButton(state, entry)
     }
 }
+
+private fun catalogHint(entry: VersionEntry): String =
+    if (entry.loader.isModded) "Моды, шейдеры и ресурспаки с Modrinth для этой сборки"
+    else "Шейдеры и ресурспаки с Modrinth для этой версии"
 
 private fun boostHint(entry: VersionEntry, options: InstanceOptions, fabricReady: Boolean): String = when {
     !fabricReady ->
@@ -302,18 +323,16 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
         close()
         state.showLogs(entry)
     })
-    if (entry.loader.isModded) {
-        JuxMenuItem("Моды…", icon = JuxIcons.Extension, onClick = {
-            close()
-            state.modal = Modal.Mods(entry)
-        })
-    }
+    JuxMenuItem("Каталог…", icon = JuxIcons.Extension, onClick = {
+        close()
+        state.modal = Modal.Catalog(entry)
+    })
     JuxMenuItem("Ярлык на рабочем столе", icon = JuxIcons.OpenInNew, enabled = Shortcuts.isAvailable, onClick = {
         close()
         state.createShortcut(entry)
     })
     MenuDivider()
-    JuxMenuItem("Переустановить", icon = Icons.Default.Refresh, enabled = installed && !state.busy, onClick = {
+    JuxMenuItem("Переустановить", icon = Icons.Default.Refresh, enabled = (installed || entry.pack != null) && !state.busy, onClick = {
         close()
         state.reinstall(entry)
     })
@@ -470,7 +489,7 @@ private fun GroupedVersionList(state: LauncherState, groups: List<VersionGroup>)
 @Composable
 private fun GroupHeader(group: VersionGroup, expanded: Boolean, onToggle: () -> Unit) {
     val rotation by animateFloatAsState(if (expanded) 0f else -90f, label = "groupArrow")
-    val versions = remember(group) { group.entries.distinctBy { it.id }.size }
+    val versions = remember(group) { group.entries.distinctBy { it.pack?.id ?: it.id }.size }
 
     Row(
         Modifier
@@ -550,16 +569,24 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
             Box(Modifier.size(7.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(dotSize).clip(CircleShape).background(JuxColors.Accent))
             }
+            Row(
+                Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    entry.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected) JuxColors.Accent else JuxColors.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Tag(entry.loader.label, loaderColor(entry.loader))
+            }
             Text(
-                entry.id,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (selected) JuxColors.Accent else JuxColors.Text,
-            )
-            Tag(entry.loader.label, loaderColor(entry.loader))
-            Spacer(Modifier.weight(1f))
-            Text(
-                formatReleaseDate(entry.version.releaseTime),
+                if (entry.pack != null) entry.id else formatReleaseDate(entry.version.releaseTime),
                 style = MaterialTheme.typography.bodySmall,
                 color = JuxColors.TextMuted,
             )

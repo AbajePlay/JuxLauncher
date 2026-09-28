@@ -105,6 +105,22 @@ class ActivityTest {
     }
 
     @Test
+    fun `a pack folder is named after the pack`(@TempDir root: Path) {
+        PlayHistory.resetForTests()
+        PlayHistory.cacheFile = null
+        PlayHistory.historyFile = null
+        val dir = root.resolve("fabulously-optimized")
+        dir.resolve("logs").createDirectories().resolve("latest.log").writeText("[12:00:00] [main/INFO]: a\n[12:30:00] [main/INFO]: b\n")
+        dir.resolve("jux-pack.json").writeText(
+            """{"id":"fabulously-optimized","title":"Fabulously Optimized","version":"14.1.0","gameVersion":"26.2","loader":"FABRIC","projectId":"1KVo5zza","versionId":"ssWn7YI0"}""",
+        )
+
+        val session = PlayHistory.scan(listOf(root), zone).single()
+        assertEquals("Fabulously Optimized", session.label)
+        assertEquals("26.2" to LoaderKind.FABRIC, session.versionId to session.loader)
+    }
+
+    @Test
     fun `totals, week, streaks, longest and favourites`() {
         val sessions = listOf(
             session(day, 18 to 0, 19 to 30),

@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.jux.launcher.auth.Account
+import ru.jux.launcher.auth.AuthConfig
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.SkinHead
 import ru.jux.launcher.ui.components.ButtonStyle
@@ -78,9 +79,13 @@ fun AccountsScreen(state: LauncherState) {
                 )
                 Spacer(Modifier.height(12.dp))
                 JuxButton(
-                    if (state.signingIn) state.signInStage.ifBlank { "Вход…" } else "Войти через Microsoft",
+                    when {
+                        !AuthConfig.isConfigured -> "Временно недоступен"
+                        state.signingIn -> state.signInStage.ifBlank { "Вход…" }
+                        else -> "Войти через Microsoft"
+                    },
                     style = ButtonStyle.PRIMARY,
-                    enabled = !state.signingIn,
+                    enabled = AuthConfig.isConfigured && !state.signingIn,
                     onClick = { state.signInMicrosoft() },
                 )
             }

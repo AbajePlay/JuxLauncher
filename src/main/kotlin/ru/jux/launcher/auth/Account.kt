@@ -15,7 +15,6 @@ data class Account(
     val refreshToken: String = "",
     val expiresAt: Long = 0,
     val skinUrl: String? = null,
-    val addedAt: Long = System.currentTimeMillis(),
 ) {
     val isOffline: Boolean get() = type == AccountType.OFFLINE
 

@@ -14,9 +14,12 @@ import ru.jux.launcher.core.Notices
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.logs.LogSource
+import ru.jux.launcher.meta.LoaderKind
+import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.online.OnlineCount
 import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.ui.App
+import ru.jux.launcher.ui.CatalogTab
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.Screen
@@ -107,12 +110,30 @@ fun main(args: Array<String>) {
     val dialogs = listOfNotNull(
         entry?.let { "dialog-delete" to Modal.Delete(it) },
         entry?.let { "dialog-logs" to Modal.Logs(state.gameDirOf(it), it.label, LogSource.GAME) },
-        entry?.takeIf { it.loader.isModded }?.let { "dialog-mods" to Modal.Mods(it) },
+        entry?.let { "dialog-catalog" to Modal.Catalog(it) },
+        entry?.let { "dialog-catalog-shaders" to Modal.Catalog(it, CatalogTab.SHADERS) },
+        entry?.let { "dialog-catalog-installed" to Modal.Catalog(it, CatalogTab.INSTALLED) },
     )
     for ((name, modal) in dialogs) {
         state.modal = modal
         render(name, 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     }
     state.modal = null
+
+    val pack = Modpack(
+        id = "fabulously-optimized",
+        title = "Fabulously Optimized",
+        version = "14.1.0",
+        gameVersion = "26.2",
+        loader = LoaderKind.FABRIC,
+        loaderVersion = "0.19.5",
+        projectId = "1KVo5zza",
+        versionId = "ssWn7YI0",
+    )
+    val withPack = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded.copy(packs = listOf(pack)))
+    withPack.selectEntry(withPack.entryFor(pack))
+    render("home-pack", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
+    withPack.screen = Screen.PACKS
+    render("packs-installed", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
     exitProcess(0)
 }

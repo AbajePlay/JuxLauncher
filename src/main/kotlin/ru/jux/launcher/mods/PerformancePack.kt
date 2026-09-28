@@ -74,7 +74,7 @@ object PerformancePack {
             val owned = playersOwnProjects(modsDir, options.boostMods)
             resolve(
                 owned = owned,
-                find = { project -> Modrinth.pick(Modrinth.versions(project, LOADER, gameVersion)) },
+                find = { project -> Modrinth.pick(Modrinth.versions(project, listOf(LOADER), gameVersion)) },
                 titles = { ids -> Modrinth.titles(ids) },
             )
         } catch (e: CancellationException) {
@@ -86,7 +86,7 @@ object PerformancePack {
 
         val wanted = candidates.mapNotNull { candidate ->
             val file = candidate.version.primaryFile ?: return@mapNotNull null
-            val name = safeFileName(file.filename) ?: return@mapNotNull null
+            val name = ContentKind.MOD.safeName(file.filename) ?: return@mapNotNull null
             val sha1 = file.sha1 ?: return@mapNotNull null
             ManagedMod(candidate.projectId, candidate.version.id, name, sha1, candidate.title) to file
         }
@@ -118,7 +118,10 @@ object PerformancePack {
     fun remove(gameDir: Path) {
         val options = InstanceStore.get(gameDir)
         val modsDir = gameDir.resolve("mods")
-        options.boostMods.forEach { mod -> runCatching { modsDir.resolve(mod.fileName).deleteIfExists() } }
+        val files = options.boostMods.map { modsDir.resolve(it.fileName) }
+        val needed = ModCompat.enabledIn(modsDir, except = files.toSet()).flatMap { it.depends }.toSet()
+        files.filterNot { file -> ModCompat.read(file)?.let { it.id in needed || it.provides.any(needed::contains) } == true }
+            .forEach { file -> runCatching { file.deleteIfExists() } }
         InstanceStore.update(gameDir) {
             it.copy(fpsBoost = false, boostMods = emptyList(), boostMissing = emptyList(), boostOwned = emptyList(), boostCheckedAt = 0)
         }
@@ -185,7 +188,4 @@ object PerformancePack {
         val hashes = jars.mapNotNull { runCatching { sha1Of(it) }.getOrNull() }
         return Modrinth.versionsByHash(hashes).values.map { it.projectId }.toSet()
     }
-
-    internal fun safeFileName(name: String): String? =
-        name.takeIf { it.endsWith(".jar") && '/' !in it && '\\' !in it && ".." !in it && ':' !in it }
 }

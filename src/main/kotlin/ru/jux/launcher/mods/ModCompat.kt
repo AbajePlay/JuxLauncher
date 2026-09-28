@@ -18,6 +18,7 @@ data class ModMeta(
     val version: String,
     val provides: Set<String> = emptySet(),
     val breaks: Map<String, List<String>> = emptyMap(),
+    val depends: Set<String> = emptySet(),
 ) {
     val shortVersion: String get() = version.substringBefore('+')
 }
@@ -56,7 +57,8 @@ object ModCompat {
                 else -> emptyList()
             }
         }
-        return ModMeta(id, root.text("name") ?: id, version, provides, breaks)
+        val depends = (root["depends"] as? JsonObject).orEmpty().keys
+        return ModMeta(id, root.text("name") ?: id, version, provides, breaks, depends)
     }
 
     fun conflictsAmong(mods: List<ModMeta>): List<Conflict> =

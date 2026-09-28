@@ -2,17 +2,17 @@ package ru.jux.launcher.auth
 
 import com.sun.jna.platform.win32.Crypt32Util
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.Shell
 import java.util.Base64
 
 object TokenStore {
 
-    private val isWindows = System.getProperty("os.name").orEmpty().lowercase().contains("win")
     private const val PLAIN_PREFIX = "plain:"
     private const val DPAPI_PREFIX = "dpapi:"
 
     fun protect(secret: String): String {
         if (secret.isEmpty()) return ""
-        if (isWindows) {
+        if (Shell.isWindows) {
             runCatching {
                 val encrypted = Crypt32Util.cryptProtectData(secret.toByteArray(Charsets.UTF_8))
                 return DPAPI_PREFIX + Base64.getEncoder().encodeToString(encrypted)
@@ -39,6 +39,4 @@ object TokenStore {
             else -> stored
         }
     }
-
-    val isHardwareBacked: Boolean get() = isWindows
 }

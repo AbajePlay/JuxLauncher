@@ -52,6 +52,13 @@ class DiscordPresenceTest {
     }
 
     @Test
+    fun `a pack shows its name before the version`() {
+        val activity = DiscordPresence.activity(Presence.Playing("26.2", "Fabric", null, 12, 0, pack = "Cobblemon"))
+        assertEquals("Cobblemon · Minecraft 26.2", activity.text("details"))
+        assertEquals("12 модов", activity.text("state"))
+    }
+
+    @Test
     fun `russian plural for mods`() {
         mapOf(1 to "мод", 2 to "мода", 4 to "мода", 5 to "модов", 11 to "модов", 12 to "модов", 21 to "мод", 22 to "мода", 111 to "модов", 101 to "мод")
             .forEach { (count, word) -> assertEquals(word, DiscordPresence.modsWord(count), "count $count") }

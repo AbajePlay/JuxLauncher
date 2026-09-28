@@ -6,6 +6,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.sha1Of
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.meta.LoaderKind
@@ -28,8 +29,9 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 
-data class InstalledMod(
+data class InstalledItem(
     val file: Path,
+    val kind: ContentKind,
     val enabled: Boolean,
     val sha1: String,
     val projectId: String?,
@@ -44,6 +46,7 @@ data class InstalledMod(
 
 object ModManager {
 
+    const val IRIS = "YL57xq9U"
     private const val DISABLED = ".disabled"
     private const val DEPENDENCY_DEPTH = 4
     private const val FIX_ROUNDS = 4
@@ -69,43 +72,68 @@ object ModManager {
         LoaderKind.VANILLA -> emptyList()
     }
 
-    fun modsDir(gameDir: Path): Path = gameDir.resolve("mods")
+    fun catalogLoaders(content: ContentKind, kind: LoaderKind): List<String> = when (content) {
+        ContentKind.MOD -> loadersFor(kind)
+        ContentKind.SHADER -> listOf("iris", "optifine")
+        ContentKind.RESOURCE_PACK -> listOf("minecraft")
+    }
 
-    suspend fun scan(gameDir: Path, kind: LoaderKind, gameVersion: String, withUpdates: Boolean): List<InstalledMod> =
+    fun shaderLoader(kind: LoaderKind): LoaderKind? = when (kind) {
+        LoaderKind.FABRIC, LoaderKind.QUILT, LoaderKind.NEOFORGE -> kind
+        LoaderKind.VANILLA -> LoaderKind.FABRIC
+        LoaderKind.FORGE -> null
+    }
+
+    fun modsDir(gameDir: Path): Path = ContentKind.MOD.dir(gameDir)
+
+    suspend fun scan(
+        gameDir: Path,
+        kind: LoaderKind,
+        gameVersion: String,
+        content: ContentKind = ContentKind.MOD,
+        withUpdates: Boolean = false,
+    ): List<InstalledItem> =
         withContext(Dispatchers.IO) {
-            val dir = modsDir(gameDir)
+            val dir = content.dir(gameDir)
             if (!dir.isDirectory()) return@withContext emptyList()
-            val files = dir.listDirectoryEntries().filter { it.name.endsWith(".jar") || it.name.endsWith(".jar$DISABLED") }
+            val files = dir.listDirectoryEntries().filter { isContent(it, content) }
             if (files.isEmpty()) return@withContext emptyList()
 
-            val sums = files.associateWith { runCatching { hashOf(it) }.getOrDefault("") }
+            val sums = files.associateWith { file -> if (file.isDirectory()) "" else runCatching { hashOf(file) }.getOrDefault("") }
             val known = sums.values.filter { it.isNotEmpty() }
             val versions = remote("identify mods") { Modrinth.versionsByHash(known) }.orEmpty()
             val projects = remote("mod titles") { Modrinth.projects(versions.values.map { it.projectId }.distinct()) }
                 .orEmpty().associateBy { it.id }
             val loaders = loadersFor(kind)
-            val updates = if (withUpdates && versions.isNotEmpty()) {
+            val updates = if (withUpdates && content == ContentKind.MOD && versions.isNotEmpty()) {
                 val latest = remote("mod updates") { Modrinth.latestVersions(versions.keys, loaders, gameVersion) }.orEmpty()
                 stableUpdates(versions, latest, loaders, gameVersion)
             } else {
                 emptyMap()
             }
             val options = InstanceStore.get(gameDir)
-            val boost = options.boostMods.map { it.fileName }.toSet()
+            val boost = if (content == ContentKind.MOD) options.boostMods.map { it.fileName }.toSet() else emptySet()
             val blocked = options.blockedUpdates.toSet()
+            val shader = if (content == ContentKind.SHADER) GameOptions.activeShader(gameDir) else null
+            val resourcePacks = if (content == ContentKind.RESOURCE_PACK) GameOptions.resourcePacks(gameDir).toSet() else emptySet()
 
             files.map { file ->
                 val sha1 = sums.getValue(file)
                 val version = versions[sha1]
                 val project = version?.let { projects[it.projectId] }
                 val newer = updates[sha1]?.takeIf { it.id !in blocked }
-                val enabled = file.name.endsWith(".jar")
-                InstalledMod(
+                val enabled = when (content) {
+                    ContentKind.MOD -> file.name.endsWith(".jar")
+                    ContentKind.SHADER -> file.name == shader
+                    ContentKind.RESOURCE_PACK -> "file/${file.name}" in resourcePacks
+                }
+                InstalledItem(
                     file = file,
+                    kind = content,
                     enabled = enabled,
                     sha1 = sha1,
                     projectId = version?.projectId,
-                    title = project?.title?.takeIf { it.isNotBlank() } ?: file.name.removeSuffix(DISABLED).removeSuffix(".jar"),
+                    title = project?.title?.takeIf { it.isNotBlank() } ?: file.name.removeSuffix(DISABLED).removeSuffix(content.extension),
                     versionNumber = version?.versionNumber.orEmpty(),
                     iconUrl = project?.iconUrl,
                     fromBoost = file.name.removeSuffix(DISABLED) in boost,
@@ -113,6 +141,11 @@ object ModManager {
                 )
             }.sortedBy { it.title.lowercase() }
         }
+
+    private fun isContent(file: Path, content: ContentKind): Boolean = when (content) {
+        ContentKind.MOD -> file.name.endsWith(".jar") || file.name.endsWith(".jar$DISABLED")
+        else -> file.name.endsWith(content.extension) || file.isDirectory()
+    }
 
     suspend fun install(
         gameDir: Path,
@@ -156,7 +189,7 @@ object ModManager {
         val before = dir.listDirectoryEntries().toSet()
         val tasks = chosen.values.map { version ->
             val file = version.primaryFile ?: throw IOException("У ${version.name} нет файла для скачивания")
-            val name = PerformancePack.safeFileName(file.filename)
+            val name = ContentKind.MOD.safeName(file.filename)
                 ?: throw IOException("Недопустимое имя файла: ${file.filename}")
             DownloadTask(file.url, dir.resolve(name), file.sha1, file.size, label = name)
         }
@@ -174,10 +207,55 @@ object ModManager {
         chosen.keys.map { titles[it] ?: it }
     }
 
-    suspend fun update(mod: InstalledMod, onProgress: (DownloadProgress) -> Unit = {}) = withContext(Dispatchers.IO) {
+    suspend fun installShader(
+        gameDir: Path,
+        kind: LoaderKind,
+        gameVersion: String,
+        projectId: String,
+        title: String,
+        present: Set<String>,
+        onProgress: (DownloadProgress) -> Unit = {},
+    ): List<String> {
+        val runLoader = shaderLoader(kind)
+            ?: throw IOException("Шейдеры работают через Iris, а для ${kind.label} его нет. Выбери эту версию с Fabric или NeoForge")
+        val iris = if (IRIS in present) emptyList() else install(gameDir, runLoader, gameVersion, IRIS, "Iris", present, onProgress)
+        val name = downloadPack(gameDir, ContentKind.SHADER, gameVersion, projectId, title, onProgress)
+        GameOptions.setShader(gameDir, name)
+        return iris + title
+    }
+
+    suspend fun installResourcePack(
+        gameDir: Path,
+        gameVersion: String,
+        projectId: String,
+        title: String,
+        onProgress: (DownloadProgress) -> Unit = {},
+    ) {
+        val name = downloadPack(gameDir, ContentKind.RESOURCE_PACK, gameVersion, projectId, title, onProgress)
+        GameOptions.setResourcePack(gameDir, name, enabled = true)
+    }
+
+    private suspend fun downloadPack(
+        gameDir: Path,
+        content: ContentKind,
+        gameVersion: String,
+        projectId: String,
+        title: String,
+        onProgress: (DownloadProgress) -> Unit,
+    ): String = withContext(Dispatchers.IO) {
+        val version = Modrinth.pick(Modrinth.versions(projectId, catalogLoaders(content, LoaderKind.VANILLA), gameVersion))
+            ?: throw IOException("$title пока нет для $gameVersion")
+        val file = version.primaryFile ?: throw IOException("У ${version.name} нет файла для скачивания")
+        val name = content.safeName(file.filename) ?: throw IOException("Недопустимое имя файла: ${file.filename}")
+        Downloader().run(listOf(DownloadTask(file.url, content.dir(gameDir).resolve(name), file.sha1, file.size, label = name)), onProgress)
+        Log.info("${content.projectType} installed into $gameDir: $name")
+        name
+    }
+
+    suspend fun update(mod: InstalledItem, onProgress: (DownloadProgress) -> Unit = {}) = withContext(Dispatchers.IO) {
         val version = mod.update ?: return@withContext
         val file = version.primaryFile ?: throw IOException("У ${version.name} нет файла для скачивания")
-        val name = PerformancePack.safeFileName(file.filename)
+        val name = ContentKind.MOD.safeName(file.filename)
             ?: throw IOException("Недопустимое имя файла: ${file.filename}")
         val target = mod.file.resolveSibling(if (mod.enabled) name else name + DISABLED)
         val download = mod.file.resolveSibling("$name.download")
@@ -250,7 +328,7 @@ object ModManager {
                 .take(FIX_CANDIDATES)
             for (candidate in candidates) {
                 val file = candidate.primaryFile ?: continue
-                val name = PerformancePack.safeFileName(file.filename) ?: continue
+                val name = ContentKind.MOD.safeName(file.filename) ?: continue
                 val download = jar.resolveSibling("$name.download")
                 Downloader().run(listOf(DownloadTask(file.url, download, file.sha1, file.size, label = name)), onProgress)
                 val fresh = ModCompat.read(download)
@@ -301,20 +379,32 @@ object ModManager {
     private fun publishedAt(version: Modrinth.Version): Instant =
         runCatching { Instant.parse(version.datePublished) }.getOrDefault(Instant.EPOCH)
 
-    fun setEnabled(mod: InstalledMod, enabled: Boolean) {
-        if (mod.enabled == enabled) return
-        val base = mod.fileName.removeSuffix(DISABLED)
-        val target = mod.file.resolveSibling(if (enabled) base else base + DISABLED)
-        locked(mod) { Files.move(mod.file, target, StandardCopyOption.REPLACE_EXISTING) }
-        gameDirOf(mod)?.let(::clearBlocked)
+    fun setEnabled(item: InstalledItem, enabled: Boolean) {
+        if (item.enabled == enabled) return
+        val gameDir = gameDirOf(item) ?: return
+        when (item.kind) {
+            ContentKind.MOD -> {
+                val base = item.fileName.removeSuffix(DISABLED)
+                val target = item.file.resolveSibling(if (enabled) base else base + DISABLED)
+                locked(item) { Files.move(item.file, target, StandardCopyOption.REPLACE_EXISTING) }
+                clearBlocked(gameDir)
+            }
+            ContentKind.SHADER -> GameOptions.setShader(gameDir, item.fileName.takeIf { enabled })
+            ContentKind.RESOURCE_PACK -> GameOptions.setResourcePack(gameDir, item.fileName, enabled)
+        }
     }
 
-    fun remove(mod: InstalledMod) {
-        locked(mod) { mod.file.deleteIfExists() }
-        gameDirOf(mod)?.let(::clearBlocked)
+    fun remove(item: InstalledItem) {
+        locked(item) { if (item.file.isDirectory()) Storage.discard(item.file) else item.file.deleteIfExists() }
+        val gameDir = gameDirOf(item) ?: return
+        when (item.kind) {
+            ContentKind.MOD -> clearBlocked(gameDir)
+            ContentKind.SHADER -> if (item.enabled) GameOptions.setShader(gameDir, null)
+            ContentKind.RESOURCE_PACK -> GameOptions.setResourcePack(gameDir, item.fileName, enabled = false)
+        }
     }
 
-    private fun gameDirOf(mod: InstalledMod): Path? = mod.file.parent?.parent
+    private fun gameDirOf(item: InstalledItem): Path? = item.file.parent?.parent
 
     private fun clearBlocked(gameDir: Path) {
         if (InstanceStore.get(gameDir).blockedUpdates.isEmpty()) return
@@ -326,7 +416,7 @@ object ModManager {
         if (!dir.exists()) 0 else dir.listDirectoryEntries("*.jar").size
     }.getOrDefault(0)
 
-    private inline fun locked(mod: InstalledMod, action: () -> Unit) {
+    private inline fun locked(mod: InstalledItem, action: () -> Unit) {
         try {
             action()
         } catch (e: FileSystemException) {

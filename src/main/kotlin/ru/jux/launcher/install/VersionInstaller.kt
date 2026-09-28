@@ -8,7 +8,6 @@ import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.meta.AssetEndpoints
 import ru.jux.launcher.meta.AssetIndex
-import ru.jux.launcher.meta.Library
 import ru.jux.launcher.meta.RuleEnvironment
 import ru.jux.launcher.meta.VersionJson
 import ru.jux.launcher.meta.VersionManifestRepository

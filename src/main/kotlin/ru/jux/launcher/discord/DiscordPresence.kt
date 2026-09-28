@@ -27,6 +27,7 @@ sealed interface Presence {
         val server: String?,
         val mods: Int,
         val startedAt: Long,
+        val pack: String? = null,
     ) : Presence
 }
 
@@ -106,7 +107,7 @@ object DiscordPresence {
                 }
             }
             is Presence.Playing -> {
-                put("details", listOfNotNull("Minecraft ${presence.versionId}", presence.loaderLabel).joinToString(" · "))
+                put("details", detailsOf(presence))
                 put("state", stateOf(presence))
                 putJsonObject("timestamps") { put("start", presence.startedAt / 1000) }
                 putJsonObject("assets") {
@@ -122,6 +123,11 @@ object DiscordPresence {
             }
         }
     }
+
+    private fun detailsOf(playing: Presence.Playing): String =
+        listOfNotNull(playing.pack, "Minecraft ${playing.versionId}", playing.loaderLabel.takeIf { playing.pack == null })
+            .joinToString(" · ")
+            .take(128)
 
     private fun stateOf(playing: Presence.Playing): String = when {
         playing.server != null -> "На сервере ${playing.server}".take(128)

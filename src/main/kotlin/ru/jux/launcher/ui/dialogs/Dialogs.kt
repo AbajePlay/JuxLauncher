@@ -69,7 +69,7 @@ import ru.jux.launcher.ui.theme.PillShape
 fun ModalHost(state: LauncherState) {
     when (val modal = state.modal) {
         null -> Unit
-        is Modal.Mods -> ModsDialog(state, modal.entry)
+        is Modal.Catalog -> CatalogDialog(state, modal.entry, modal.tab)
         is Modal.Delete -> DeleteDialog(state, modal.entry)
         is Modal.Logs -> LogDialog(state, modal)
     }
@@ -84,7 +84,7 @@ private fun DeleteDialog(state: LauncherState, entry: VersionEntry) {
     var withFolder by remember { mutableStateOf(false) }
     LaunchedEffect(entry) {
         info = withContext(Dispatchers.IO) {
-            val ids = Storage.versionIdsOf(entry.id, entry.loader, state.versions.map { it.id })
+            val ids = if (entry.pack != null) emptyList() else Storage.versionIdsOf(entry.id, entry.loader, state.versions.map { it.id })
             DeleteInfo(
                 versionBytes = ids.sumOf { Storage.sizeOf(Paths.versionDir(it)) },
                 folderExists = dir.exists(),
@@ -115,6 +115,15 @@ private fun DeleteDialog(state: LauncherState, entry: VersionEntry) {
         val known = info
         if (known == null) {
             Text("Считаю, сколько места освободится…", style = MaterialTheme.typography.bodyMedium, color = JuxColors.TextMuted)
+            return@JuxDialog
+        }
+        if (entry.pack != null) {
+            Text(
+                "Папка сборки — " + (if (known.hasWorlds) "миры, " else "") + "моды и настройки (${formatBytes(known.folderBytes)}) — " +
+                    if (Storage.trashAvailable) "уйдёт в корзину, её можно будет восстановить." else "удалится насовсем.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = JuxColors.Text,
+            )
             return@JuxDialog
         }
         Text(

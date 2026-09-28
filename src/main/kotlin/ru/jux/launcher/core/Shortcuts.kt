@@ -13,11 +13,11 @@ object Shortcuts {
 
     private val ILLEGAL = Regex("""[\\/:*?"<>|]""")
 
-    fun createOnDesktop(title: String, versionId: String, loader: LoaderKind): Path {
+    fun createOnDesktop(title: String, versionId: String, loader: LoaderKind, pack: String? = null): Path {
         val exe = Shell.appExecutable
             ?: throw IOException("Ярлыки создаются только в установленном лаунчере, не при запуске из IDE")
         val link = desktop().resolve(title.replace(ILLEGAL, "_").trim() + ".lnk")
-        create(link, exe, PlayArguments.of(versionId, loader), "JuxLauncher: $title")
+        create(link, exe, PlayArguments.of(versionId, loader, pack), "JuxLauncher: $title")
         Log.info("desktop shortcut created: $link")
         return link
     }
@@ -46,19 +46,21 @@ object Shortcuts {
             .getOrElse { Path.of(System.getProperty("user.home"), "Desktop") }
 }
 
-data class PlayRequest(val versionId: String, val loader: LoaderKind)
+data class PlayRequest(val versionId: String, val loader: LoaderKind, val pack: String? = null)
 
 object PlayArguments {
 
-    fun of(versionId: String, loader: LoaderKind): String =
-        "--play \"$versionId\"" + if (loader.isModded) " --loader ${loader.name.lowercase()}" else ""
+    fun of(versionId: String, loader: LoaderKind, pack: String? = null): String =
+        "--play \"$versionId\"" +
+            (if (loader.isModded) " --loader ${loader.name.lowercase()}" else "") +
+            (if (pack != null) " --pack \"$pack\"" else "")
 
     fun parse(args: Array<String>): PlayRequest? {
         val version = args.valueAfter("--play")?.takeIf { it.isNotBlank() } ?: return null
         val loaderName = args.valueAfter("--loader")
         val loader = LoaderKind.entries.firstOrNull { it.name.equals(loaderName, ignoreCase = true) }
             ?: LoaderKind.VANILLA
-        return PlayRequest(version, loader)
+        return PlayRequest(version, loader, args.valueAfter("--pack")?.takeIf { it.isNotBlank() })
     }
 
     private fun Array<String>.valueAfter(flag: String): String? =
