@@ -344,17 +344,19 @@ internal sealed class SplashForm : Form
         this.failure = failure;
         this.ready = ready;
 
-        using (Graphics graphics = CreateGraphics())
+        using (Graphics screen = Graphics.FromHwnd(IntPtr.Zero))
         {
-            scale = graphics.DpiX / 96f;
+            scale = screen.DpiX / 96f;
         }
         FormBorderStyle = FormBorderStyle.None;
-        StartPosition = FormStartPosition.CenterScreen;
+        StartPosition = FormStartPosition.Manual;
         ShowInTaskbar = true;
         TopMost = true;
         Text = "JuxLauncher";
         BackColor = SplashLook.Background;
         ClientSize = new Size((int)(SplashLook.Width * scale), (int)(SplashLook.Height * scale));
+        Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + (area.Height - Height) / 2);
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
         try
         {
