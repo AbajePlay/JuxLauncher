@@ -18,6 +18,8 @@ enum class LoaderKind(val label: String) {
 
     val supportsBoost: Boolean get() = this == VANILLA || this == FABRIC
 
+    val installsWithJava: Boolean get() = this == FORGE || this == NEOFORGE
+
     fun ownsProfile(id: String, gameVersion: String): Boolean = when (this) {
         VANILLA -> id == gameVersion
         FABRIC -> id.startsWith("fabric-loader-") && id.endsWith("-$gameVersion")

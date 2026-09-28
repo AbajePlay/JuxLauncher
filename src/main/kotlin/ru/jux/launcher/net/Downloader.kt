@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.VerifyCache
+import ru.jux.launcher.core.sha1Of
 import ru.jux.launcher.core.toHex
 import java.io.IOException
 import java.nio.file.Files
@@ -52,11 +53,13 @@ data class DownloadProgress(
 class Downloader(
     private val concurrency: Int = DEFAULT_CONCURRENCY,
     private val maxAttempts: Int = 4,
+    private val bigFileBytes: Long = BIG_FILE_BYTES,
 ) {
 
     companion object {
         val DEFAULT_CONCURRENCY = (Runtime.getRuntime().availableProcessors() * 4).coerceIn(8, 24)
         private const val BUFFER = 1 shl 16
+        private const val BIG_FILE_BYTES = 8L shl 20
     }
 
     suspend fun run(
@@ -125,7 +128,7 @@ class Downloader(
         VerifyCache.save()
     }
 
-    private fun fetch(task: DownloadTask, onBytes: (Long) -> Unit) {
+    private suspend fun fetch(task: DownloadTask, onBytes: (Long) -> Unit) {
         val urls = listOf(task.url) + task.mirrors
         var lastError: Throwable? = null
 
@@ -139,14 +142,15 @@ class Downloader(
             } catch (e: Throwable) {
                 lastError = e
                 Log.debug("attempt $attempt/$maxAttempts failed for ${task.label}: ${e.message}")
-                if (attempt < maxAttempts) Thread.sleep(200L * attempt * attempt)
+                if (attempt < maxAttempts) delay(200L * attempt * attempt)
             }
         }
         throw IOException("failed to download ${task.label} from ${task.url}", lastError)
     }
 
-    private fun downloadOnce(url: String, task: DownloadTask, onBytes: (Long) -> Unit) {
+    private suspend fun downloadOnce(url: String, task: DownloadTask, onBytes: (Long) -> Unit) {
         task.dest.parent?.createDirectories()
+        if (task.size >= bigFileBytes && downloadInPieces(url, task, onBytes)) return
         val part = task.dest.resolveSibling("${task.dest.fileName}.part")
         var counted = 0L
 
@@ -190,6 +194,27 @@ class Downloader(
         } catch (e: Throwable) {
             part.deleteIfExists()
             if (counted > 0) onBytes(-counted)
+            throw e
+        }
+    }
+
+    private suspend fun downloadInPieces(url: String, task: DownloadTask, onBytes: (Long) -> Unit): Boolean {
+        val source = withContext(Dispatchers.IO) { Pieces.probe(url) }
+        if (!source.ranges || source.length != task.size) return false
+        val part = task.dest.resolveSibling("${task.dest.fileName}.part")
+        val counted = AtomicLong()
+        try {
+            Pieces.fetch(source.url, part, task.size, { n -> counted.addAndGet(n.toLong()); onBytes(n.toLong()) })
+            task.sha1?.let { expected ->
+                val actual = sha1Of(part)
+                if (!actual.equals(expected, ignoreCase = true)) throw IOException("sha1 mismatch: expected $expected, got $actual")
+            }
+            Files.move(part, task.dest, StandardCopyOption.REPLACE_EXISTING)
+            task.sha1?.let { VerifyCache.record(task.dest, it) }
+            return true
+        } catch (e: Throwable) {
+            part.deleteIfExists()
+            onBytes(-counted.get())
             throw e
         }
     }

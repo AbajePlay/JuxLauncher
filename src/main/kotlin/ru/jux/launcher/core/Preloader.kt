@@ -35,7 +35,7 @@ data class PreloadResult(
 
 object Preloader {
 
-    private const val MIN_VISIBLE_MS = 900L
+    private const val MIN_VISIBLE_MS = 300L
 
     suspend fun run(onStep: (Float, String) -> Unit): PreloadResult {
         val startedAt = System.currentTimeMillis()

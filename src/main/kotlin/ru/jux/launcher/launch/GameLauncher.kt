@@ -5,6 +5,8 @@ import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.auth.Account
 import ru.jux.launcher.auth.AccountManager
@@ -19,6 +21,7 @@ import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.net.Downloader
+import ru.jux.launcher.net.ProgressMerger
 import ru.jux.launcher.runtime.JavaComponents
 import ru.jux.launcher.runtime.JavaManager
 import ru.jux.launcher.servers.ServerList
@@ -102,50 +105,60 @@ object GameLauncher {
         )
 
         val baseVersion = withContext(Dispatchers.IO) { installer.resolve(versionId) }
+        val progress = ProgressMerger(onProgress)
 
-        onStage("Подготовка Java")
-        val javaExecutable = resolveJava(
-            baseVersion.javaVersion?.component,
-            baseVersion.javaVersion?.majorVersion,
-            onProgress,
-        )
+        return coroutineScope {
+            val java = async {
+                resolveJava(baseVersion.javaVersion?.component, baseVersion.javaVersion?.majorVersion, progress.sink("java"))
+            }
+            val awaitJava: suspend () -> Path = {
+                if (!java.isCompleted) onStage("Докачиваю Java")
+                java.await()
+            }
 
-        gameDir.createDirectories()
-        val options = InstanceStore.get(gameDir)
+            gameDir.createDirectories()
+            val options = InstanceStore.get(gameDir)
 
-        val runLoader = if (options.fpsBoost && loader.supportsBoost) {
-            applyBoost(gameDir, versionId, loader, onStage, onProgress, onNotice)
-        } else {
-            loader
-        }
+            val runLoader = if (options.fpsBoost && loader.supportsBoost) {
+                applyBoost(gameDir, versionId, loader, onStage, progress.sink("boost"), onNotice)
+            } else {
+                loader
+            }
 
-        val profileId = if (runLoader.isModded) {
-            try {
-                LoaderInstaller.ensureProfile(
-                    kind = runLoader,
-                    gameVersion = versionId,
-                    javaExecutable = javaExecutable,
-                    pinned = loaderVersion.takeIf { runLoader == loader },
-                    onStage = onStage,
-                    onProgress = onProgress,
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                if (loader.isModded) throw e
-                Log.warn("fabric for the boost unavailable, starting vanilla: ${e.message}")
-                onNotice("FPS-буст в этот раз не включился: ${e.message}")
+            val baseFiles = if (runLoader.installsWithJava) async { installer.prefetch(baseVersion, progress.sink("game")) } else null
+
+            val profileId = if (runLoader.isModded) {
+                try {
+                    LoaderInstaller.ensureProfile(
+                        kind = runLoader,
+                        gameVersion = versionId,
+                        javaExecutable = {
+                            baseFiles?.await()
+                            awaitJava()
+                        },
+                        pinned = loaderVersion.takeIf { runLoader == loader },
+                        onStage = onStage,
+                        onProgress = progress.sink("loader"),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (loader.isModded) throw e
+                    Log.warn("fabric for the boost unavailable, starting vanilla: ${e.message}")
+                    onNotice("FPS-буст в этот раз не включился: ${e.message}")
+                    versionId
+                }
+            } else {
                 versionId
             }
-        } else {
-            versionId
+            baseFiles?.await()
+
+            val version = if (profileId == versionId) baseVersion
+            else withContext(Dispatchers.IO) { installer.resolve(profileId) }
+
+            val installed = installer.install(version, gameDir, onStage, progress.sink("game"))
+            PreparedLaunch(installed, gameDir, awaitJava(), settings.memoryMb)
         }
-
-        val version = if (profileId == versionId) baseVersion
-        else withContext(Dispatchers.IO) { installer.resolve(profileId) }
-
-        val installed = installer.install(version, gameDir, onStage, onProgress)
-        return PreparedLaunch(installed, gameDir, javaExecutable, settings.memoryMb)
     }
 
     private suspend fun applyBoost(

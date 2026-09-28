@@ -2,8 +2,6 @@ package ru.jux.launcher.update
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,19 +17,13 @@ import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.toHex
 import ru.jux.launcher.launch.ArgumentBuilder
-import okhttp3.OkHttpClient
-import okhttp3.Protocol
-import okhttp3.Request
 import ru.jux.launcher.net.Http
+import ru.jux.launcher.net.Pieces
 import java.io.IOException
-import java.io.RandomAccessFile
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
@@ -142,8 +134,8 @@ object Updater {
 
     internal suspend fun download(
         update: UpdateManifest,
-        streams: Int = STREAMS,
-        pieceBytes: Long = PIECE_BYTES,
+        streams: Int = Pieces.STREAMS,
+        pieceBytes: Long = Pieces.PIECE_BYTES,
         onProgress: (fraction: Float, bytesPerSecond: Long) -> Unit = { _, _ -> },
     ): Path = withContext(Dispatchers.IO) {
         val extension = if (update.url.substringBefore('?').endsWith(".exe", ignoreCase = true)) "exe" else "msi"
@@ -152,25 +144,11 @@ object Updater {
         val part = dir.resolve("${target.fileName}.part")
 
         try {
-            val source = probe(update.url)
+            val source = Pieces.probe(update.url)
             val total = update.size.takeIf { it > 0 } ?: source.length
             val meter = Meter(total, onProgress)
             if (source.ranges && total > pieceBytes) {
-                RandomAccessFile(part.toFile(), "rw").use { file ->
-                    file.setLength(total)
-                    val pieces = (0 until (total + pieceBytes - 1) / pieceBytes).map { it * pieceBytes }
-                    val next = AtomicInteger()
-                    coroutineScope {
-                        repeat(streams) {
-                            async {
-                                while (true) {
-                                    val start = pieces.getOrNull(next.getAndIncrement()) ?: break
-                                    fetchRange(source.url, file.channel, start, minOf(total, start + pieceBytes) - 1, meter)
-                                }
-                            }
-                        }
-                    }
-                }
+                Pieces.fetch(source.url, part, total, meter::add, streams, pieceBytes)
             } else {
                 fetchWhole(source.url, part, meter)
             }
@@ -185,49 +163,8 @@ object Updater {
         }
     }
 
-    private val separate: OkHttpClient by lazy { Http.client.newBuilder().protocols(listOf(Protocol.HTTP_1_1)).build() }
-
-    private class Source(val url: String, val length: Long, val ranges: Boolean)
-
-    private fun probe(url: String): Source = runCatching {
-        separate.newCall(Request.Builder().url(url).head().build()).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-            Source(
-                url = response.request.url.toString(),
-                length = response.header("Content-Length")?.toLongOrNull() ?: -1,
-                ranges = response.header("Accept-Ranges").equals("bytes", ignoreCase = true),
-            )
-        }
-    }.getOrNull() ?: Source(url, -1, ranges = false)
-
-    private fun fetchRange(url: String, channel: FileChannel, start: Long, end: Long, meter: Meter) {
-        var position = start
-        var attempt = 0
-        while (position <= end) {
-            try {
-                val request = Request.Builder().url(url).header("Range", "bytes=$position-$end").header("Connection", "close").build()
-                separate.newCall(request).execute().use { response ->
-                    if (response.code != 206) throw IOException("HTTP ${response.code} при загрузке обновления")
-                    val input = response.body?.byteStream() ?: throw IOException("пустой ответ сервера обновлений")
-                    val buffer = ByteArray(1 shl 16)
-                    while (position <= end) {
-                        val n = input.read(buffer, 0, minOf(buffer.size.toLong(), end - position + 1).toInt())
-                        if (n <= 0) break
-                        channel.write(ByteBuffer.wrap(buffer, 0, n), position)
-                        position += n
-                        meter.add(n)
-                    }
-                }
-                if (position <= end) throw IOException("соединение оборвалось на загрузке обновления")
-            } catch (e: IOException) {
-                if (++attempt >= ATTEMPTS) throw e
-                Thread.sleep(RETRY_MILLIS * attempt)
-            }
-        }
-    }
-
     private fun fetchWhole(url: String, part: Path, meter: Meter) {
-        separate.newCall(Http.request(url)).execute().use { response ->
+        Pieces.client.newCall(Http.request(url)).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code} при загрузке обновления")
             val body = response.body ?: throw IOException("пустой ответ сервера обновлений")
             body.byteStream().use { input ->
@@ -308,9 +245,5 @@ object Updater {
     }
 
     private const val READY_MILLIS = 10_000L
-    private const val STREAMS = 6
-    private const val PIECE_BYTES = 4L shl 20
-    private const val ATTEMPTS = 4
-    private const val RETRY_MILLIS = 500L
     private const val SAMPLE_NANOS = 250_000_000L
 }

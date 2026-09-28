@@ -41,6 +41,7 @@ object VerifyCache {
         }
     }
 
+    @Synchronized
     fun save() {
         if (!dirty.getAndSet(false)) return
         runCatching {

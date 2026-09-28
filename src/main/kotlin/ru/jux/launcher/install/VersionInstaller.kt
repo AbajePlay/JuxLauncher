@@ -75,15 +75,51 @@ class VersionInstaller(
         return Json.decodeFromString(text)
     }
 
+    private class Plan(
+        val tasks: List<DownloadTask>,
+        val classpath: List<Path>,
+        val nativeJars: List<NativeJar>,
+        val clientJar: Path,
+        val assetIndex: AssetIndex?,
+        val logConfig: Path?,
+    )
+
+    suspend fun prefetch(version: VersionJson, onProgress: (DownloadProgress) -> Unit = {}) {
+        downloader.run(plan(version, onProgress).tasks, onProgress)
+    }
+
     suspend fun install(
         version: VersionJson,
         gameDir: Path,
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
     ): InstalledVersion {
-        Paths.ensureBaseDirs()
-
         onStage("Чтение метаданных")
+        val plan = plan(version, onProgress)
+
+        onStage("Загрузка файлов")
+        downloader.run(plan.tasks, onProgress)
+
+        onStage("Распаковка библиотек")
+        val nativesDir = NativesExtractor.extract(version.id, plan.nativeJars)
+
+        onStage("Подготовка ресурсов")
+        val assetsDir = prepareAssets(version, plan.assetIndex, gameDir)
+
+        return InstalledVersion(
+            json = version,
+            clientJar = plan.clientJar,
+            classpath = plan.classpath.plusElement(plan.clientJar),
+            nativesDir = nativesDir,
+            assetsDir = assetsDir,
+            assetIndexId = version.assetsId,
+            logConfig = plan.logConfig,
+            logConfigArgument = version.logging?.client?.argument,
+        )
+    }
+
+    private suspend fun plan(version: VersionJson, onProgress: (DownloadProgress) -> Unit): Plan {
+        Paths.ensureBaseDirs()
         val assetIndexFile = ensureAssetIndex(version, onProgress)
         val assetIndex = assetIndexFile?.let {
             runCatching { Json.decodeFromString<AssetIndex>(it.readText()) }
@@ -123,26 +159,7 @@ class VersionInstaller(
             }
             logConfig = dest
         }
-
-        onStage("Загрузка файлов")
-        downloader.run(tasks, onProgress)
-
-        onStage("Распаковка библиотек")
-        val nativesDir = NativesExtractor.extract(version.id, nativeJars)
-
-        onStage("Подготовка ресурсов")
-        val assetsDir = prepareAssets(version, assetIndex, gameDir)
-
-        return InstalledVersion(
-            json = version,
-            clientJar = clientJar,
-            classpath = classpath.plusElement(clientJar),
-            nativesDir = nativesDir,
-            assetsDir = assetsDir,
-            assetIndexId = version.assetsId,
-            logConfig = logConfig,
-            logConfigArgument = version.logging?.client?.argument,
-        )
+        return Plan(tasks, classpath, nativeJars, clientJar, assetIndex, logConfig)
     }
 
     internal fun collectLibraries(

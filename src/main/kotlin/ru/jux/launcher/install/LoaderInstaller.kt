@@ -35,7 +35,7 @@ object LoaderInstaller {
     suspend fun ensureProfile(
         kind: LoaderKind,
         gameVersion: String,
-        javaExecutable: Path,
+        javaExecutable: suspend () -> Path,
         pinned: String? = null,
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
@@ -96,7 +96,7 @@ object LoaderInstaller {
         kind: LoaderKind,
         gameVersion: String,
         loaderVersion: String,
-        javaExecutable: Path,
+        javaExecutable: suspend () -> Path,
         onStage: (String) -> Unit,
         onProgress: (DownloadProgress) -> Unit,
     ): String {
@@ -125,8 +125,9 @@ object LoaderInstaller {
         } else {
             ensureLauncherProfilesStub()
 
+            val java = javaExecutable()
             onStage("Устанавливаю ${kind.label} — это занимает пару минут")
-            runInstaller(javaExecutable, installerJar)
+            runInstaller(java, installerJar)
 
             locateInstalledProfile(kind, gameVersion, loaderVersion)
                 ?: throw IOException(

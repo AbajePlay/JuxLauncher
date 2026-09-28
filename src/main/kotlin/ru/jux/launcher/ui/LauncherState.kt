@@ -332,7 +332,19 @@ class LauncherState(
             .toList()
     }
 
+    private var groupsCache: Pair<List<Any?>, List<VersionGroup>>? = null
+
     fun groups(): List<VersionGroup> {
+        val settings = Settings.current
+        val inputs = listOf(
+            versions, searchQuery, onlyInstalled, packs, loaderSupport, installed, profiles,
+            settings.showSnapshots, settings.showOldVersions,
+        )
+        groupsCache?.takeIf { it.first == inputs }?.let { return it.second }
+        return buildGroups().also { groupsCache = inputs to it }
+    }
+
+    private fun buildGroups(): List<VersionGroup> {
         val query = searchQuery.trim().lowercase()
         val packEntries = packs
             .filter { query.isEmpty() || query in it.title.lowercase() || query in it.gameVersion.lowercase() }
