@@ -114,6 +114,8 @@ class LauncherState(
     var versions by mutableStateOf<List<ManifestVersion>>(emptyList())
     var selectedVersionId by mutableStateOf(Settings.current.lastVersionId)
     var searchQuery by mutableStateOf("")
+    var onlyInstalled by mutableStateOf(Settings.current.onlyInstalled)
+        private set
 
     var installed by mutableStateOf<Map<String, Long>>(emptyMap())
 
@@ -320,7 +322,7 @@ class LauncherState(
         val query = searchQuery.trim().lowercase()
         return versions.asSequence()
             .filter { version ->
-                when (version.kind) {
+                onlyInstalled || when (version.kind) {
                     VersionKind.RELEASE -> true
                     VersionKind.SNAPSHOT -> settings.showSnapshots
                     VersionKind.OLD_BETA, VersionKind.OLD_ALPHA, VersionKind.OTHER -> settings.showOldVersions
@@ -342,13 +344,19 @@ class LauncherState(
                     key = key,
                     entries = items.flatMap { version ->
                         loaderSupport.loadersFor(version.id).map { VersionEntry(version, it) }
-                    },
+                    }.filter { !onlyInstalled || isEntryInstalled(it) },
                 )
             }
+            .filter { it.entries.isNotEmpty() }
         return listOfNotNull(VersionGroup(PACKS_GROUP, packEntries).takeIf { packEntries.isNotEmpty() }) + versionGroups
     }
 
-    fun isExpanded(group: VersionGroup): Boolean = searchQuery.isNotBlank() || group.key in expandedGroups
+    fun isExpanded(group: VersionGroup): Boolean = searchQuery.isNotBlank() || onlyInstalled || group.key in expandedGroups
+
+    fun toggleOnlyInstalled() {
+        onlyInstalled = !onlyInstalled
+        Settings.update { it.copy(onlyInstalled = onlyInstalled) }
+    }
 
     fun toggleGroup(key: String) {
         expandedGroups = if (key in expandedGroups) expandedGroups - key else expandedGroups + key

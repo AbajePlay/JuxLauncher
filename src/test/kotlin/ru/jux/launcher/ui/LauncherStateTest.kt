@@ -131,6 +131,23 @@ class LauncherStateTest {
     }
 
     @Test
+    fun `the downloaded filter keeps only installed entries and opens their groups`() {
+        val state = LauncherState(scope, preload(setOf("26.3", "fabric-loader-0.16.14-26.3")))
+        if (state.onlyInstalled) state.toggleOnlyInstalled()
+        try {
+            state.toggleOnlyInstalled()
+            val groups = state.groups()
+            assertEquals(listOf("26.3"), groups.map { it.key })
+            assertEquals(listOf(LoaderKind.VANILLA, LoaderKind.FABRIC), groups.single().entries.map { it.loader })
+            assertTrue(state.isExpanded(groups.single()))
+            assertTrue(Settings.current.onlyInstalled)
+        } finally {
+            if (state.onlyInstalled) state.toggleOnlyInstalled()
+        }
+        assertEquals(listOf("26.3", "26.2"), state.groups().map { it.key })
+    }
+
+    @Test
     fun `a server's pinned version survives a round trip through its key`() {
         val state = LauncherState(scope, preload(setOf("26.3")))
         val entry = state.entryFor("26.3", LoaderKind.FABRIC)

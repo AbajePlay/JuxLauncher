@@ -17,6 +17,7 @@ data class LauncherSettings(
     val jvmArgs: String = SettingsDefaults.JVM_ARGS,
     val showSnapshots: Boolean = false,
     val showOldVersions: Boolean = false,
+    val onlyInstalled: Boolean = false,
     val downloadConcurrency: Int = 0,
     val customGameDir: String? = null,
     val lastVersionId: String? = null,

@@ -122,7 +122,13 @@ fun HomeScreen(state: LauncherState) {
                     Spacer(Modifier.height(12.dp))
                     val groups = state.groups()
                     if (groups.isEmpty()) {
-                        CenteredHint("Ничего не найдено. Включите снапшоты или старые версии в настройках.")
+                        CenteredHint(
+                            when {
+                                state.onlyInstalled && state.searchQuery.isBlank() -> "Скачанных версий пока нет"
+                                state.onlyInstalled -> "Среди скачанных такой версии нет"
+                                else -> "Ничего не найдено. Включите снапшоты или старые версии в настройках."
+                            }
+                        )
                     } else {
                         GroupedVersionList(state, groups)
                     }
@@ -420,14 +426,24 @@ private fun ProgressBar(fraction: Float) {
 
 @Composable
 private fun ListHeader(state: LauncherState) {
-    SearchField(
-        value = state.searchQuery,
-        onValueChange = { state.searchQuery = it },
-        placeholder = "Поиск версии",
-        modifier = Modifier.fillMaxWidth(),
-        focusRequester = state.searchFocus,
-        onFocusChange = { state.searchFocused = it },
-    )
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        SearchField(
+            value = state.searchQuery,
+            onValueChange = { state.searchQuery = it },
+            placeholder = "Поиск версии",
+            modifier = Modifier.weight(1f),
+            focusRequester = state.searchFocus,
+            onFocusChange = { state.searchFocused = it },
+        )
+        WithTooltip(if (state.onlyInstalled) "Показать все версии" else "Показать только скачанные версии и сборки") {
+            ChoiceChip(
+                label = "Скачанные",
+                selected = state.onlyInstalled,
+                onClick = state::toggleOnlyInstalled,
+                icon = JuxIcons.Download,
+            )
+        }
+    }
 }
 
 private class DoubleClick {
