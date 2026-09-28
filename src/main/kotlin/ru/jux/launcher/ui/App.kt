@@ -76,10 +76,10 @@ import ru.jux.launcher.ui.components.ThinProgress
 import ru.jux.launcher.ui.components.Wordmark
 import ru.jux.launcher.ui.dialogs.ModalHost
 import ru.jux.launcher.ui.screens.AccountsScreen
+import ru.jux.launcher.ui.screens.CatalogScreen
 import ru.jux.launcher.ui.screens.ActivityScreen
 import ru.jux.launcher.ui.screens.HomeScreen
 import ru.jux.launcher.ui.screens.NoticesScreen
-import ru.jux.launcher.ui.screens.PacksScreen
 import ru.jux.launcher.ui.screens.SettingsScreen
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
@@ -129,7 +129,7 @@ private fun ScreenHost(state: LauncherState) {
     ) { screen ->
         when (screen) {
             Screen.HOME -> HomeScreen(state)
-            Screen.PACKS -> PacksScreen(state)
+            Screen.CATALOG -> CatalogScreen(state)
             Screen.ACTIVITY -> ActivityScreen(state)
             Screen.NOTICES -> NoticesScreen(state)
             Screen.SETTINGS -> SettingsScreen(state)
@@ -178,7 +178,7 @@ private fun NavRail(state: LauncherState) {
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NavItem("Играть", Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
-            NavItem("Сборки", JuxIcons.Package, state.screen == Screen.PACKS) { state.screen = Screen.PACKS }
+            NavItem("Каталог", JuxIcons.Extension, state.screen == Screen.CATALOG) { state.openCatalog() }
             NavItem("Активность", JuxIcons.Activity, state.screen == Screen.ACTIVITY) { state.screen = Screen.ACTIVITY }
             NavItem(
                 "Уведомления",
@@ -431,7 +431,7 @@ private fun AccountSwitcher(state: LauncherState) {
 private fun UpdateCard(state: LauncherState) {
     val update by state.updates.collectAsState()
     val current = update
-    if (current !is UpdateState.Available && current !is UpdateState.Downloading &&
+    if (current !is UpdateState.Available && current !is UpdateState.Downloading && current !is UpdateState.Installing &&
         !(current is UpdateState.Failed && current.update != null)
     ) return
 
@@ -458,6 +458,11 @@ private fun UpdateCard(state: LauncherState) {
                 Text("Скачиваю ${current.update.version}", style = MaterialTheme.typography.labelLarge, color = JuxColors.Text)
                 Spacer(Modifier.height(10.dp))
                 ThinProgress(current.fraction)
+            }
+            is UpdateState.Installing -> {
+                Text("Устанавливаю ${current.update.version}", style = MaterialTheme.typography.labelLarge, color = JuxColors.Text)
+                Spacer(Modifier.height(10.dp))
+                ThinProgress(1f)
             }
             is UpdateState.Failed -> {
                 Text("Обновление не удалось", style = MaterialTheme.typography.labelLarge, color = JuxColors.Danger)

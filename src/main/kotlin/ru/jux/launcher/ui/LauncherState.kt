@@ -70,7 +70,7 @@ import ru.jux.launcher.servers.Servers
 import ru.jux.launcher.update.UpdateManifest
 import ru.jux.launcher.update.Updater
 
-enum class Screen { HOME, PACKS, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
+enum class Screen { HOME, CATALOG, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
 
 data class VersionEntry(
     val version: ManifestVersion,
@@ -91,10 +91,9 @@ data class VersionGroup(
     val entries: List<VersionEntry>,
 )
 
-enum class CatalogTab { MODS, SHADERS, RESOURCE_PACKS, INSTALLED }
+enum class CatalogTab { PACKS, MODS, SHADERS, RESOURCE_PACKS, INSTALLED }
 
 sealed interface Modal {
-    data class Catalog(val entry: VersionEntry, val tab: CatalogTab? = null) : Modal
     data class Delete(val entry: VersionEntry) : Modal
     data class Logs(val gameDir: Path?, val title: String, val source: LogSource) : Modal
 }
@@ -134,6 +133,9 @@ class LauncherState(
 
     var installingPack by mutableStateOf<String?>(null)
         private set
+
+    var catalogTab by mutableStateOf(CatalogTab.PACKS)
+    var catalogTarget by mutableStateOf<VersionEntry?>(null)
 
     var loaderSupport by mutableStateOf(LoaderSupport())
 
@@ -530,7 +532,7 @@ class LauncherState(
         val entry = notice.entryKey?.let(::entryByKey)
         when (action) {
             NoticeAction.LOGS -> showLogs(entry)
-            NoticeAction.MODS -> entry?.let { modal = Modal.Catalog(it, CatalogTab.INSTALLED) }
+            NoticeAction.MODS -> entry?.let { openCatalog(it, CatalogTab.INSTALLED) }
             NoticeAction.FIX_MODS -> entry?.let { fixMods(it, notice) }
             NoticeAction.PLAY_ANYWAY -> entry?.let {
                 Notices.resolve(notice.id)
@@ -771,6 +773,7 @@ class LauncherState(
                 selectedPackId = null
                 refreshSelectedOptions()
             }
+            if (catalogTarget?.pack?.id == pack.id) catalogTarget = null
             if (Settings.current.lastPack == pack.id) Settings.update { it.copy(lastPack = null) }
             packs = withContext(Dispatchers.IO) { Modpacks.list() }
             packUpdates = packUpdates - pack.id
@@ -801,6 +804,19 @@ class LauncherState(
     }
 
     fun modsChanged(entry: VersionEntry) = instanceChanged(entry)
+
+    fun openCatalog(entry: VersionEntry? = null, tab: CatalogTab? = null) {
+        catalogTarget = entry
+        tab?.let { catalogTab = it }
+        screen = Screen.CATALOG
+    }
+
+    fun catalogTargets(): List<VersionEntry> {
+        val installedVersions = versions
+            .flatMap { version -> loaderSupport.loadersFor(version.id).map { VersionEntry(version, it) } }
+            .filter(::isEntryInstalled)
+        return (packs.map(::entryFor) + installedVersions + listOfNotNull(currentEntry())).distinctBy { it.key }
+    }
 
     fun openFolder(dir: Path) = Shell.openFolder(dir) { fail(it) }
 

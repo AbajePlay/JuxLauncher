@@ -2,10 +2,12 @@ package ru.jux.launcher.update
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import ru.jux.launcher.core.Json
@@ -41,6 +43,7 @@ sealed interface UpdateState {
     data object UpToDate : UpdateState
     data class Available(val update: UpdateManifest) : UpdateState
     data class Downloading(val update: UpdateManifest, val fraction: Float) : UpdateState
+    data class Installing(val update: UpdateManifest) : UpdateState
     data class Failed(val message: String, val update: UpdateManifest?) : UpdateState
 }
 
@@ -74,7 +77,7 @@ object Updater {
 
     suspend fun check() {
         val url = UpdateConfig.feedUrl ?: return
-        if (_state.value is UpdateState.Downloading || _state.value is UpdateState.Checking) return
+        if (_state.value is UpdateState.Downloading || _state.value is UpdateState.Installing || _state.value is UpdateState.Checking) return
         _state.value = UpdateState.Checking
         _state.value = try {
             val manifest = withContext(Dispatchers.IO) { Json.decodeFromString<UpdateManifest>(Http.getString(url)) }
@@ -93,7 +96,8 @@ object Updater {
             val app = Shell.appExecutable
                 ?: throw IOException("Обновление ставится только в установленный лаунчер, не при запуске из IDE")
             val file = download(update) { fraction -> _state.value = UpdateState.Downloading(update, fraction) }
-            startInstaller(file, app)
+            _state.value = UpdateState.Installing(update)
+            startInstaller(file, app, update.version)
         } catch (e: CancellationException) {
             _state.value = UpdateState.Available(update)
             throw e
@@ -166,27 +170,34 @@ object Updater {
             }
         }
 
-    internal fun msiArguments(installer: Path, desktopShortcut: Boolean): String {
-        val base = "/i \"$installer\" /passive /norestart"
-        return if (desktopShortcut) base else "$base JP_INSTALL_DESKTOP_SHORTCUT=\"\""
+    internal fun msiArguments(installer: Path, desktopShortcut: Boolean, log: Path): String {
+        val shortcut = if (desktopShortcut) "" else " JP_INSTALL_DESKTOP_SHORTCUT=\"\""
+        return "/i \"$installer\" /qn /norestart$shortcut /l*v \"$log\""
     }
 
-    private fun startInstaller(installer: Path, app: Path) {
-        val pid = ProcessHandle.current().pid()
-        val install = if (installer.toString().endsWith(".msi")) {
-            val keepDesktop = Shortcuts.appOnDesktop(app).exists()
-            "Start-Process -FilePath 'msiexec.exe' -ArgumentList " +
-                Shell.psLiteral(msiArguments(installer, keepDesktop)) + " -Wait"
-        } else {
-            "Start-Process -FilePath ${Shell.psLiteral(installer.toString())} -Wait"
+    private suspend fun startInstaller(installer: Path, app: Path, version: String) {
+        val dir = Paths.cache.resolve("update")
+        val ready = dir.resolve("ready")
+        val script = withContext(Dispatchers.IO) {
+            UpdateSplash.prepare(dir)
+            ready.deleteIfExists()
+            val msi = installer.toString().endsWith(".msi")
+            UpdateSplash.script(
+                launcher = ProcessHandle.current().pid(),
+                installer = if (msi) "msiexec.exe" else installer.toString(),
+                arguments = if (msi) msiArguments(installer, Shortcuts.appOnDesktop(app).exists(), dir.resolve("install.log")) else "",
+                app = app,
+                assets = dir,
+                version = version,
+                ready = ready,
+            )
         }
-        val script = listOf(
-            "Wait-Process -Id $pid -Timeout 60 -ErrorAction SilentlyContinue",
-            install,
-            "Start-Process -FilePath ${Shell.psLiteral(app.toString())}",
-        ).joinToString("\n")
         Shell.runHidden(Shell.powershell(script), waitMs = 0)
             ?: throw IOException("Не удалось запустить установщик обновления")
         Log.info("update installer handed over: $installer")
+        withTimeoutOrNull(READY_MILLIS) { while (!ready.exists()) delay(50) }
+            ?: Log.warn("update splash did not show up in $READY_MILLIS ms")
     }
+
+    private const val READY_MILLIS = 10_000L
 }

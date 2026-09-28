@@ -85,6 +85,7 @@ import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.servers.ServerEntry
+import ru.jux.launcher.ui.CatalogTab
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.PingState
@@ -246,7 +247,7 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             ChoiceChip(
                 label = "Каталог",
                 selected = false,
-                onClick = { state.modal = Modal.Catalog(entry) },
+                onClick = { state.openCatalog(entry, catalogTabFor(entry)) },
                 icon = JuxIcons.Extension,
             )
         }
@@ -267,6 +268,8 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
         EntryMenuButton(state, entry)
     }
 }
+
+private fun catalogTabFor(entry: VersionEntry) = if (entry.loader.isModded) CatalogTab.MODS else CatalogTab.SHADERS
 
 private fun catalogHint(entry: VersionEntry): String =
     if (entry.loader.isModded) "Моды, шейдеры и ресурспаки с Modrinth для этой сборки"
@@ -325,7 +328,7 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
     })
     JuxMenuItem("Каталог…", icon = JuxIcons.Extension, onClick = {
         close()
-        state.modal = Modal.Catalog(entry)
+        state.openCatalog(entry, catalogTabFor(entry))
     })
     JuxMenuItem("Ярлык на рабочем столе", icon = JuxIcons.OpenInNew, enabled = Shortcuts.isAvailable, onClick = {
         close()

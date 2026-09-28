@@ -48,11 +48,4 @@ class CatalogSearch(
             }
         }
     }
-
-    fun reset() {
-        job?.cancel()
-        query = ""
-        hits = emptyList()
-        total = 0
-    }
 }

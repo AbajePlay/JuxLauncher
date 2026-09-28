@@ -36,10 +36,11 @@ class UpdaterTest {
     @Test
     fun `an update does not bring back a removed desktop shortcut`() {
         val msi = Path.of("JuxLauncher-1.5.5.msi")
-        assertEquals("/i \"JuxLauncher-1.5.5.msi\" /passive /norestart", Updater.msiArguments(msi, desktopShortcut = true))
+        val log = Path.of("install.log")
+        assertEquals("/i \"JuxLauncher-1.5.5.msi\" /qn /norestart /l*v \"install.log\"", Updater.msiArguments(msi, desktopShortcut = true, log))
         assertEquals(
-            "/i \"JuxLauncher-1.5.5.msi\" /passive /norestart JP_INSTALL_DESKTOP_SHORTCUT=\"\"",
-            Updater.msiArguments(msi, desktopShortcut = false),
+            "/i \"JuxLauncher-1.5.5.msi\" /qn /norestart JP_INSTALL_DESKTOP_SHORTCUT=\"\" /l*v \"install.log\"",
+            Updater.msiArguments(msi, desktopShortcut = false, log),
         )
     }
 

@@ -69,7 +69,6 @@ import ru.jux.launcher.ui.theme.PillShape
 fun ModalHost(state: LauncherState) {
     when (val modal = state.modal) {
         null -> Unit
-        is Modal.Catalog -> CatalogDialog(state, modal.entry, modal.tab)
         is Modal.Delete -> DeleteDialog(state, modal.entry)
         is Modal.Logs -> LogDialog(state, modal)
     }

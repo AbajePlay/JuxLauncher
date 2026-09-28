@@ -110,15 +110,17 @@ fun main(args: Array<String>) {
     val dialogs = listOfNotNull(
         entry?.let { "dialog-delete" to Modal.Delete(it) },
         entry?.let { "dialog-logs" to Modal.Logs(state.gameDirOf(it), it.label, LogSource.GAME) },
-        entry?.let { "dialog-catalog" to Modal.Catalog(it) },
-        entry?.let { "dialog-catalog-shaders" to Modal.Catalog(it, CatalogTab.SHADERS) },
-        entry?.let { "dialog-catalog-installed" to Modal.Catalog(it, CatalogTab.INSTALLED) },
     )
     for ((name, modal) in dialogs) {
         state.modal = modal
         render(name, 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     }
     state.modal = null
+
+    for (tab in listOf(CatalogTab.MODS, CatalogTab.SHADERS, CatalogTab.INSTALLED)) {
+        state.openCatalog(tab = tab)
+        render("catalog-${tab.name.lowercase()}", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
+    }
 
     val pack = Modpack(
         id = "fabulously-optimized",
@@ -133,7 +135,7 @@ fun main(args: Array<String>) {
     val withPack = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded.copy(packs = listOf(pack)))
     withPack.selectEntry(withPack.entryFor(pack))
     render("home-pack", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
-    withPack.screen = Screen.PACKS
-    render("packs-installed", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
+    withPack.openCatalog(tab = CatalogTab.PACKS)
+    render("catalog-packs-installed", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
     exitProcess(0)
 }

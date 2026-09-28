@@ -1,12 +1,14 @@
-package ru.jux.launcher.ui.dialogs
+package ru.jux.launcher.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,6 +50,7 @@ import ru.jux.launcher.mods.InstalledItem
 import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.Modrinth
 import ru.jux.launcher.net.DownloadProgress
+import ru.jux.launcher.packs.Modpacks
 import ru.jux.launcher.ui.CatalogSearch
 import ru.jux.launcher.ui.CatalogTab
 import ru.jux.launcher.ui.LauncherState
@@ -54,11 +59,14 @@ import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.ChoiceChip
 import ru.jux.launcher.ui.components.ContentRow
 import ru.jux.launcher.ui.components.JuxButton
-import ru.jux.launcher.ui.components.JuxDialog
+import ru.jux.launcher.ui.components.JuxDropdownMenu
 import ru.jux.launcher.ui.components.JuxIcons
+import ru.jux.launcher.ui.components.JuxMenuItem
 import ru.jux.launcher.ui.components.JuxSwitch
 import ru.jux.launcher.ui.components.ListBox
 import ru.jux.launcher.ui.components.ListHint
+import ru.jux.launcher.ui.components.Panel
+import ru.jux.launcher.ui.components.ReportOpen
 import ru.jux.launcher.ui.components.SearchField
 import ru.jux.launcher.ui.components.SearchResults
 import ru.jux.launcher.ui.components.StatusStrip
@@ -66,13 +74,23 @@ import ru.jux.launcher.ui.components.Tag
 import ru.jux.launcher.ui.components.WithTooltip
 import ru.jux.launcher.ui.components.formatCount
 import ru.jux.launcher.ui.theme.JuxColors
+import ru.jux.launcher.ui.theme.JuxDimens
 
 private val CatalogTab.kind: ContentKind?
     get() = when (this) {
         CatalogTab.MODS -> ContentKind.MOD
         CatalogTab.SHADERS -> ContentKind.SHADER
         CatalogTab.RESOURCE_PACKS -> ContentKind.RESOURCE_PACK
-        CatalogTab.INSTALLED -> null
+        CatalogTab.PACKS, CatalogTab.INSTALLED -> null
+    }
+
+private val CatalogTab.title: String
+    get() = when (this) {
+        CatalogTab.PACKS -> "Сборки"
+        CatalogTab.MODS -> "Моды"
+        CatalogTab.SHADERS -> "Шейдеры"
+        CatalogTab.RESOURCE_PACKS -> "Ресурспаки"
+        CatalogTab.INSTALLED -> "Установленные"
     }
 
 private val ContentKind.title: String
@@ -89,19 +107,41 @@ private val ContentKind.searchHint: String
         ContentKind.RESOURCE_PACK -> "Найти ресурспак: Fresh Animations, Faithful…"
     }
 
-private class CatalogModel(
+private class PacksModel(private val scope: CoroutineScope) {
+    val search = CatalogSearch(scope) { query, offset -> Modrinth.search("modpack", query, emptyList(), null, offset) }
+    var resolving by mutableStateOf<String?>(null)
+    var error by mutableStateOf<String?>(null)
+
+    fun install(state: LauncherState, hit: Modrinth.SearchHit) {
+        if (state.busy || resolving != null) return
+        resolving = hit.projectId
+        error = null
+        scope.launch {
+            try {
+                state.installPack(Modpacks.source(hit.projectId, hit.slug.ifBlank { hit.projectId }, hit.title, hit.iconUrl))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "Не получилось"
+            } finally {
+                resolving = null
+            }
+        }
+    }
+}
+
+private class ContentModel(
     private val dir: Path,
     private val loader: LoaderKind,
     private val gameVersion: String,
     private val scope: CoroutineScope,
-    val tabs: List<CatalogTab>,
-    start: CatalogTab,
     private val enableBoost: () -> Boolean,
+    private val onChanged: () -> Unit,
 ) {
-    var tab by mutableStateOf(start)
-    val search = CatalogSearch(scope) { query, offset ->
-        tab.kind?.let { kind -> Modrinth.search(kind.projectType, query, ModManager.catalogLoaders(kind, loader), gameVersion, offset) }
-            ?: Modrinth.SearchPage()
+    val searches = ContentKind.entries.associateWith { kind ->
+        CatalogSearch(scope) { query, offset ->
+            Modrinth.search(kind.projectType, query, ModManager.catalogLoaders(kind, loader), gameVersion, offset)
+        }
     }
     var installed by mutableStateOf<Map<ContentKind, List<InstalledItem>>>(emptyMap())
     var scanned by mutableStateOf(false)
@@ -110,15 +150,8 @@ private class CatalogModel(
     var message by mutableStateOf<String?>(null)
     var error by mutableStateOf<String?>(null)
 
-    val shownKinds: List<ContentKind> get() = tabs.mapNotNull { it.kind }
     val installedProjects: Set<String> get() = installed.values.flatten().mapNotNull { it.projectId }.toSet()
     val updates: List<InstalledItem> get() = installed[ContentKind.MOD].orEmpty().filter { it.update != null }
-
-    fun open(next: CatalogTab) {
-        if (tab == next) return
-        tab = next
-        search.reset()
-    }
 
     fun rescan() {
         scope.launch {
@@ -132,8 +165,8 @@ private class CatalogModel(
             ModManager.scan(dir, loader, gameVersion, kind, withUpdates = kind == ContentKind.MOD && loader.isModded)
         }
 
-    fun install(hit: Modrinth.SearchHit) = work(hit.projectId) {
-        message = when (tab.kind) {
+    fun install(kind: ContentKind, hit: Modrinth.SearchHit) = work(hit.projectId) {
+        message = when (kind) {
             ContentKind.SHADER -> {
                 val titles = ModManager.installShader(dir, loader, gameVersion, hit.projectId, hit.title, installedProjects) { progress = it }
                 val boosted = loader == LoaderKind.VANILLA && enableBoost()
@@ -147,7 +180,7 @@ private class CatalogModel(
                 ModManager.installResourcePack(dir, gameVersion, hit.projectId, hit.title) { progress = it }
                 "${hit.title} установлен и включён"
             }
-            else -> {
+            ContentKind.MOD -> {
                 val titles = ModManager.install(dir, loader, gameVersion, hit.projectId, hit.title, installedProjects) { progress = it }
                 if (titles.size <= 1) "${hit.title} установлен" else "Установлено: ${titles.joinToString()}"
             }
@@ -195,10 +228,7 @@ private class CatalogModel(
         message = "${item.title} удалён"
     }
 
-    fun openFolder(state: LauncherState) {
-        val folder = tab.kind?.dir(dir) ?: dir
-        state.openFolder(folder.also { runCatching { it.createDirectories() } })
-    }
+    fun folder(kind: ContentKind?): Path = (kind?.dir(dir) ?: dir).also { runCatching { it.createDirectories() } }
 
     private fun work(key: String, block: suspend () -> Unit) {
         if (key in working) return
@@ -217,6 +247,7 @@ private class CatalogModel(
             }
             installed = scanAll()
             working = working - key
+            onChanged()
         }
     }
 
@@ -226,86 +257,165 @@ private class CatalogModel(
 }
 
 @Composable
-fun CatalogDialog(state: LauncherState, entry: VersionEntry, start: CatalogTab?) {
+fun CatalogScreen(state: LauncherState) {
     val scope = rememberCoroutineScope()
-    val model = remember(entry.key) {
-        val tabs = listOfNotNull(CatalogTab.MODS.takeIf { entry.loader.isModded }, CatalogTab.SHADERS, CatalogTab.RESOURCE_PACKS, CatalogTab.INSTALLED)
-        CatalogModel(
-            dir = state.gameDirOf(entry),
-            loader = entry.loader,
-            gameVersion = entry.id,
-            scope = scope,
-            tabs = tabs,
-            start = start?.takeIf { it in tabs } ?: tabs.first(),
-            enableBoost = { state.enableBoost(entry) },
-        )
-    }
-    val shadersPossible = state.supportsShaders(entry)
-    LaunchedEffect(model) { model.rescan() }
-    LaunchedEffect(model, model.tab, model.search.query) {
-        if (model.tab.kind == null || (model.tab == CatalogTab.SHADERS && !shadersPossible)) return@LaunchedEffect
-        if (model.search.query.isNotBlank()) delay(350)
-        model.search.run()
-    }
-    val close = {
-        state.modal = null
-        state.modsChanged(entry)
-    }
-
-    JuxDialog(
-        title = "Каталог",
-        subtitle = "${entry.label} · Modrinth",
-        onDismiss = close,
-        width = 860.dp,
-        actions = {
-            JuxButton("Открыть папку", icon = JuxIcons.Folder, onClick = { model.openFolder(state) })
-            JuxButton("Готово", style = ButtonStyle.PRIMARY, onClick = close)
-        },
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            model.tabs.forEach { tab ->
-                ChoiceChip(tab.kind?.title ?: "Установленные", selected = model.tab == tab, onClick = { model.open(tab) })
-            }
-            Spacer(Modifier.weight(1f))
-            val updates = model.updates
-            if (model.tab == CatalogTab.INSTALLED && updates.isNotEmpty()) {
-                JuxButton(
-                    "Обновить все · ${updates.size}",
-                    icon = Icons.Default.Refresh,
-                    enabled = model.working.isEmpty(),
-                    onClick = model::updateAll,
-                )
-            }
+    val target = state.catalogTarget ?: state.currentEntry()
+    val tabs = listOfNotNull(
+        CatalogTab.PACKS,
+        CatalogTab.MODS.takeIf { target?.loader?.isModded == true },
+        CatalogTab.SHADERS.takeIf { target != null },
+        CatalogTab.RESOURCE_PACKS.takeIf { target != null },
+        CatalogTab.INSTALLED.takeIf { target != null },
+    )
+    val tab = state.catalogTab.takeIf { it in tabs } ?: CatalogTab.PACKS
+    val packs = remember { PacksModel(scope) }
+    val content = target?.let { entry ->
+        remember(entry.key) {
+            ContentModel(
+                dir = state.gameDirOf(entry),
+                loader = entry.loader,
+                gameVersion = entry.id,
+                scope = scope,
+                enableBoost = { state.enableBoost(entry) },
+                onChanged = { state.modsChanged(entry) },
+            )
         }
-        Spacer(Modifier.height(12.dp))
-        val kind = model.tab.kind
-        when {
-            kind == null -> ListBox(Modifier.weight(1f, fill = false).heightIn(max = 430.dp)) { InstalledList(model, it) }
-            kind == ContentKind.SHADER && !shadersPossible -> ListBox(Modifier.heightIn(max = 430.dp)) {
-                ListHint(
-                    if (entry.loader == LoaderKind.FORGE) "Шейдеры работают через Iris, а для Forge его нет. Выбери эту версию с Fabric или NeoForge."
-                    else "Шейдерам нужен Fabric, а он пока не поддерживает ${entry.id}."
-                )
-            }
-            else -> {
-                SearchField(
-                    value = model.search.query,
-                    onValueChange = { model.search.query = it },
-                    placeholder = kind.searchHint,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(10.dp))
-                ListBox(Modifier.weight(1f, fill = false).heightIn(max = 380.dp)) { listState ->
-                    SearchResults(model.search, listState) { hit -> CatalogRow(model, kind, hit) }
+    }
+    LaunchedEffect(content) { content?.rescan() }
+
+    Column(Modifier.fillMaxSize().padding(JuxDimens.Gutter)) {
+        Panel(Modifier.fillMaxWidth().weight(1f)) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tabs.forEach { ChoiceChip(it.title, selected = tab == it, onClick = { state.catalogTab = it }) }
+                }
+                Spacer(Modifier.height(14.dp))
+                when {
+                    tab == CatalogTab.PACKS -> PacksTab(state, packs)
+                    target != null && content != null -> ContentTab(state, target, content, tab)
                 }
             }
         }
-        StatusStrip(model.progress, model.error, model.message)
     }
 }
 
 @Composable
-private fun CatalogRow(model: CatalogModel, kind: ContentKind, hit: Modrinth.SearchHit) {
+private fun ColumnScope.PacksTab(state: LauncherState, model: PacksModel) {
+    LaunchedEffect(model.search.query) {
+        if (model.search.query.isNotBlank()) delay(350)
+        model.search.run()
+    }
+    SearchField(
+        value = model.search.query,
+        onValueChange = { model.search.query = it },
+        placeholder = "Найти сборку: Fabulously Optimized, Cobblemon…",
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(10.dp))
+    ListBox(Modifier.weight(1f)) { listState ->
+        SearchResults(model.search, listState) { hit -> PackRow(state, model, hit) }
+    }
+    StatusStrip(state.progress.takeIf { state.installingPack != null }, model.error, null)
+}
+
+@Composable
+private fun PackRow(state: LauncherState, model: PacksModel, hit: Modrinth.SearchHit) {
+    val pack = state.packs.firstOrNull { it.projectId == hit.projectId }
+    val busy = model.resolving == hit.projectId || state.installingPack == hit.projectId
+    ContentRow(
+        icon = hit.iconUrl,
+        title = hit.title,
+        byline = listOfNotNull(
+            hit.author.takeIf { it.isNotBlank() }?.let { "от $it" },
+            "${formatCount(hit.downloads)} скачиваний",
+            listOfNotNull(loaderOf(hit)?.label, hit.versions.lastOrNull()).joinToString(" ").ifBlank { null },
+        ).joinToString(" · "),
+        details = hit.description,
+        onOpen = { Shell.browse("https://modrinth.com/modpack/${hit.slug.ifBlank { hit.projectId }}") },
+    ) {
+        when {
+            busy -> Text("Ставлю…", style = MaterialTheme.typography.labelLarge, color = JuxColors.TextMuted)
+            pack != null && pack.id in state.packUpdates ->
+                JuxButton("Обновить", icon = Icons.Default.Refresh, enabled = !state.busy, onClick = { state.updatePack(pack) })
+            pack != null -> JuxButton("Играть", icon = Icons.Default.PlayArrow, style = ButtonStyle.PRIMARY, enabled = !state.busy, onClick = {
+                state.selectEntry(state.entryFor(pack))
+                state.play()
+            })
+            else -> JuxButton("Установить", icon = JuxIcons.Download, enabled = !state.busy && model.resolving == null, onClick = {
+                model.install(state, hit)
+            })
+        }
+    }
+}
+
+private fun loaderOf(hit: Modrinth.SearchHit): LoaderKind? =
+    LoaderKind.entries.firstOrNull { it.isModded && it.name.lowercase() in hit.categories }
+
+@Composable
+private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, model: ContentModel, tab: CatalogTab) {
+    val kind = tab.kind
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TargetPicker(state, target)
+        Spacer(Modifier.weight(1f))
+        val updates = model.updates
+        if (tab == CatalogTab.INSTALLED && updates.isNotEmpty()) {
+            JuxButton("Обновить все · ${updates.size}", icon = Icons.Default.Refresh, enabled = model.working.isEmpty(), onClick = model::updateAll)
+        }
+        WithTooltip("Открыть папку") {
+            IconButton(onClick = { state.openFolder(model.folder(kind)) }, modifier = Modifier.size(36.dp)) {
+                Icon(JuxIcons.Folder, "Открыть папку", tint = JuxColors.TextMuted, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    when {
+        kind == null -> ListBox(Modifier.weight(1f)) { InstalledList(state, target, model, it) }
+        kind == ContentKind.SHADER && !state.supportsShaders(target) -> ListBox(Modifier.weight(1f)) {
+            ListHint(
+                if (target.loader == LoaderKind.FORGE) "Шейдеры работают через Iris, а для Forge его нет. Выбери версию с Fabric или NeoForge."
+                else "Шейдерам нужен Fabric, а он пока не поддерживает ${target.id}."
+            )
+        }
+        else -> {
+            val search = model.searches.getValue(kind)
+            LaunchedEffect(search, search.query) {
+                if (search.query.isNotBlank()) delay(350)
+                search.run()
+            }
+            SearchField(
+                value = search.query,
+                onValueChange = { search.query = it },
+                placeholder = kind.searchHint,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            ListBox(Modifier.weight(1f)) { listState ->
+                SearchResults(search, listState) { hit -> ContentHitRow(model, kind, hit) }
+            }
+        }
+    }
+    StatusStrip(model.progress, model.error, model.message)
+}
+
+@Composable
+private fun TargetPicker(state: LauncherState, target: VersionEntry) {
+    var open by remember { mutableStateOf(false) }
+    ReportOpen(open, state::trackMenu)
+    Box {
+        JuxButton("Для ${target.label}", icon = Icons.Default.KeyboardArrowDown, onClick = { open = true })
+        JuxDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            state.catalogTargets().forEach { entry ->
+                JuxMenuItem(entry.label, onClick = {
+                    open = false
+                    state.catalogTarget = entry
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.SearchHit) {
     val installed = hit.projectId in model.installedProjects
     val busy = hit.projectId in model.working
     ContentRow(
@@ -322,20 +432,21 @@ private fun CatalogRow(model: CatalogModel, kind: ContentKind, hit: Modrinth.Sea
             else -> JuxButton(
                 "Установить",
                 icon = JuxIcons.Download,
-                enabled = CatalogModel.ALL !in model.working,
-                onClick = { model.install(hit) },
+                enabled = ContentModel.ALL !in model.working,
+                onClick = { model.install(kind, hit) },
             )
         }
     }
 }
 
 @Composable
-private fun InstalledList(model: CatalogModel, listState: LazyListState) {
-    val sections = model.shownKinds.map { it to model.installed[it].orEmpty() }.filter { it.second.isNotEmpty() }
+private fun InstalledList(state: LauncherState, target: VersionEntry, model: ContentModel, listState: LazyListState) {
+    val kinds = listOfNotNull(ContentKind.MOD.takeIf { target.loader.isModded }, ContentKind.SHADER, ContentKind.RESOURCE_PACK)
+    val sections = kinds.map { it to model.installed[it].orEmpty() }.filter { it.second.isNotEmpty() }
     when {
-        !model.scanned -> ListHint("Смотрю, что стоит в сборке…")
+        !model.scanned -> ListHint("Смотрю, что стоит в ${target.label}…")
         sections.isEmpty() -> ListHint("Пока ничего не установлено. Найди моды, шейдеры и ресурспаки в каталоге.", "Открыть каталог") {
-            model.open(model.tabs.first())
+            state.catalogTab = if (target.loader.isModded) CatalogTab.MODS else CatalogTab.SHADERS
         }
         else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             sections.forEach { (kind, items) ->
@@ -354,8 +465,8 @@ private fun InstalledList(model: CatalogModel, listState: LazyListState) {
 }
 
 @Composable
-private fun InstalledRow(model: CatalogModel, item: InstalledItem) {
-    val busy = item.fileName in model.working || CatalogModel.ALL in model.working
+private fun InstalledRow(model: ContentModel, item: InstalledItem) {
+    val busy = item.fileName in model.working || ContentModel.ALL in model.working
     val update = item.update
     val locked = item.fromBoost
     ContentRow(
