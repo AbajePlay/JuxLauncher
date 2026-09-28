@@ -51,6 +51,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -64,15 +66,13 @@ import androidx.compose.ui.unit.sp
 import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.launch.ArgumentBuilder
 import ru.jux.launcher.online.OnlineCounter
-import ru.jux.launcher.ui.components.ButtonStyle
-import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDropdownMenu
 import ru.jux.launcher.ui.components.JuxIcons
 import ru.jux.launcher.ui.components.JuxMenuItem
 import ru.jux.launcher.ui.components.MenuDivider
 import ru.jux.launcher.ui.components.NoticeToast
 import ru.jux.launcher.ui.components.ReportOpen
-import ru.jux.launcher.ui.components.ThinProgress
+import ru.jux.launcher.ui.components.WithTooltip
 import ru.jux.launcher.ui.components.Wordmark
 import ru.jux.launcher.ui.components.formatSpeed
 import ru.jux.launcher.ui.dialogs.ModalHost
@@ -152,26 +152,7 @@ private fun NavRail(state: LauncherState) {
             .padding(14.dp),
     ) {
         Wordmark(164.dp, Modifier.padding(start = 12.dp, top = 12.dp))
-        Box(
-            Modifier
-                .padding(start = 12.dp, top = 8.dp, bottom = 22.dp)
-                .height(20.dp)
-                .background(JuxColors.SurfaceHigh, PillShape)
-                .padding(horizontal = 9.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "v${ArgumentBuilder.LAUNCHER_VERSION}",
-                color = JuxColors.TextMuted,
-                style = TextStyle(
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 11.sp,
-                    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
-                ),
-                modifier = Modifier.offset(y = (-1).dp),
-            )
-        }
+        VersionPill(state)
 
         val notices by state.notices.collectAsState()
         val seen by state.noticesSeen.collectAsState()
@@ -193,7 +174,6 @@ private fun NavRail(state: LauncherState) {
 
         Spacer(Modifier.weight(1f))
 
-        UpdateCard(state)
         OnlineLine()
         AccountSwitcher(state)
     }
@@ -429,63 +409,66 @@ private fun AccountSwitcher(state: LauncherState) {
 }
 
 @Composable
-private fun UpdateCard(state: LauncherState) {
+private fun VersionPill(state: LauncherState) {
     val update by state.updates.collectAsState()
     val current = update
-    if (current !is UpdateState.Available && current !is UpdateState.Downloading && current !is UpdateState.Installing &&
-        !(current is UpdateState.Failed && current.update != null)
-    ) return
+    val retry = (current as? UpdateState.Failed)?.update
+    val progress = when (current) {
+        is UpdateState.Downloading -> current.fraction
+        is UpdateState.Installing -> 1f
+        else -> null
+    }
+    val text = when {
+        current is UpdateState.Available -> "Обновить до ${current.update.version}"
+        current is UpdateState.Downloading ->
+            listOf("${(current.fraction * 100).toInt()}%", formatSpeed(current.bytesPerSecond)).filter { it.isNotEmpty() }.joinToString(" · ")
+        current is UpdateState.Installing -> "Устанавливаю ${current.update.version}"
+        retry != null -> "Не обновилось · ещё раз"
+        else -> "v${ArgumentBuilder.LAUNCHER_VERSION}"
+    }
+    val onClick: (() -> Unit)? = when {
+        current is UpdateState.Available -> { { state.installUpdate(current.update) } }
+        retry != null -> { { state.installUpdate(retry) } }
+        else -> null
+    }
+    val (background, color) = when {
+        current is UpdateState.Available -> JuxColors.Accent to JuxColors.OnAccent
+        retry != null -> JuxColors.Danger.copy(alpha = 0.16f) to JuxColors.Danger
+        progress != null -> JuxColors.SurfaceHigh to JuxColors.Text
+        else -> JuxColors.SurfaceHigh to JuxColors.TextMuted
+    }
+    val hint = when {
+        current is UpdateState.Available -> "Скачать и установить ${current.update.version}"
+        current is UpdateState.Failed -> current.message
+        else -> null
+    }
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .clip(RoundedCornerShape(JuxDimens.CornerCard))
-            .background(JuxColors.SurfaceHigh)
-            .padding(14.dp),
-    ) {
-        when (current) {
-            is UpdateState.Available -> {
-                Text("Вышла версия ${current.update.version}", style = MaterialTheme.typography.labelLarge, color = JuxColors.Text)
-                Spacer(Modifier.height(8.dp))
-                JuxButton(
-                    "Обновить",
-                    style = ButtonStyle.PRIMARY,
-                    onClick = { state.installUpdate(current.update) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            is UpdateState.Downloading -> {
-                Text("Скачиваю ${current.update.version}", style = MaterialTheme.typography.labelLarge, color = JuxColors.Text)
-                Spacer(Modifier.height(10.dp))
-                ThinProgress(current.fraction)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    listOf("${(current.fraction * 100).toInt()}%", formatSpeed(current.bytesPerSecond)).filter { it.isNotEmpty() }.joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = JuxColors.TextMuted,
-                )
-            }
-            is UpdateState.Installing -> {
-                Text("Устанавливаю ${current.update.version}", style = MaterialTheme.typography.labelLarge, color = JuxColors.Text)
-                Spacer(Modifier.height(10.dp))
-                ThinProgress(1f)
-            }
-            is UpdateState.Failed -> {
-                Text("Обновление не удалось", style = MaterialTheme.typography.labelLarge, color = JuxColors.Danger)
-                Text(
-                    current.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = JuxColors.TextMuted,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
-                current.update?.let { retry ->
-                    JuxButton("Ещё раз", onClick = { state.installUpdate(retry) }, modifier = Modifier.fillMaxWidth())
+    WithTooltip(hint) {
+        Box(
+            Modifier
+                .padding(start = 12.dp, top = 8.dp, bottom = 22.dp)
+                .height(20.dp)
+                .clip(PillShape)
+                .background(background)
+                .drawBehind {
+                    if (progress != null) drawRect(JuxColors.Accent.copy(alpha = 0.35f), size = Size(size.width * progress, size.height))
                 }
-            }
-            else -> Unit
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(horizontal = 9.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text,
+                color = color,
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 11.sp,
+                    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+                ),
+                maxLines = 1,
+                modifier = Modifier.offset(y = (-1).dp),
+            )
         }
     }
 }
