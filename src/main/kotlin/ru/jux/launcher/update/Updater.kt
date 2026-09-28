@@ -2,6 +2,8 @@ package ru.jux.launcher.update
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,12 +19,20 @@ import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.toHex
 import ru.jux.launcher.launch.ArgumentBuilder
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
 import ru.jux.launcher.net.Http
 import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
@@ -42,7 +52,7 @@ sealed interface UpdateState {
     data object Checking : UpdateState
     data object UpToDate : UpdateState
     data class Available(val update: UpdateManifest) : UpdateState
-    data class Downloading(val update: UpdateManifest, val fraction: Float) : UpdateState
+    data class Downloading(val update: UpdateManifest, val fraction: Float, val bytesPerSecond: Long = 0) : UpdateState
     data class Installing(val update: UpdateManifest) : UpdateState
     data class Failed(val message: String, val update: UpdateManifest?) : UpdateState
 }
@@ -95,7 +105,7 @@ object Updater {
         try {
             val app = Shell.appExecutable
                 ?: throw IOException("Обновление ставится только в установленный лаунчер, не при запуске из IDE")
-            val file = download(update) { fraction -> _state.value = UpdateState.Downloading(update, fraction) }
+            val file = download(update) { fraction, speed -> _state.value = UpdateState.Downloading(update, fraction, speed) }
             _state.value = UpdateState.Installing(update)
             startInstaller(file, app, update.version)
         } catch (e: CancellationException) {
@@ -130,45 +140,143 @@ object Updater {
         if (!SHA256.matches(manifest.sha256)) throw IOException("в фиде нет корректного sha256 установщика")
     }
 
-    internal suspend fun download(update: UpdateManifest, onFraction: (Float) -> Unit = {}): Path =
-        withContext(Dispatchers.IO) {
-            val extension = if (update.url.substringBefore('?').endsWith(".exe", ignoreCase = true)) "exe" else "msi"
-            val dir = Paths.cache.resolve("updates").also { it.createDirectories() }
-            val target = dir.resolve("JuxLauncher-${update.version}.$extension")
-            val part = dir.resolve("${target.fileName}.part")
+    internal suspend fun download(
+        update: UpdateManifest,
+        streams: Int = STREAMS,
+        pieceBytes: Long = PIECE_BYTES,
+        onProgress: (fraction: Float, bytesPerSecond: Long) -> Unit = { _, _ -> },
+    ): Path = withContext(Dispatchers.IO) {
+        val extension = if (update.url.substringBefore('?').endsWith(".exe", ignoreCase = true)) "exe" else "msi"
+        val dir = Paths.cache.resolve("updates").also { it.createDirectories() }
+        val target = dir.resolve("JuxLauncher-${update.version}.$extension")
+        val part = dir.resolve("${target.fileName}.part")
 
-            try {
-                Http.client.newCall(Http.request(update.url)).execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("HTTP ${response.code} при загрузке обновления")
-                    val body = response.body ?: throw IOException("пустой ответ сервера обновлений")
-                    val total = update.size.takeIf { it > 0 } ?: body.contentLength()
-                    val digest = MessageDigest.getInstance("SHA-256")
-                    var done = 0L
-                    body.byteStream().use { input ->
-                        Files.newOutputStream(part).use { output ->
-                            val buffer = ByteArray(1 shl 16)
-                            while (true) {
-                                val n = input.read(buffer)
-                                if (n <= 0) break
-                                output.write(buffer, 0, n)
-                                digest.update(buffer, 0, n)
-                                done += n
-                                if (total > 0) onFraction((done.toDouble() / total).toFloat().coerceIn(0f, 1f))
+        try {
+            val source = probe(update.url)
+            val total = update.size.takeIf { it > 0 } ?: source.length
+            val meter = Meter(total, onProgress)
+            if (source.ranges && total > pieceBytes) {
+                RandomAccessFile(part.toFile(), "rw").use { file ->
+                    file.setLength(total)
+                    val pieces = (0 until (total + pieceBytes - 1) / pieceBytes).map { it * pieceBytes }
+                    val next = AtomicInteger()
+                    coroutineScope {
+                        repeat(streams) {
+                            async {
+                                while (true) {
+                                    val start = pieces.getOrNull(next.getAndIncrement()) ?: break
+                                    fetchRange(source.url, file.channel, start, minOf(total, start + pieceBytes) - 1, meter)
+                                }
                             }
                         }
                     }
-                    val actual = digest.digest().toHex()
-                    if (!actual.equals(update.sha256, ignoreCase = true)) {
-                        throw IOException("контрольная сумма обновления не сошлась — файл повреждён или подменён")
+                }
+            } else {
+                fetchWhole(source.url, part, meter)
+            }
+            if (!sha256Of(part).equals(update.sha256, ignoreCase = true)) {
+                throw IOException("контрольная сумма обновления не сошлась — файл повреждён или подменён")
+            }
+            Files.move(part, target, StandardCopyOption.REPLACE_EXISTING)
+            target
+        } catch (e: Throwable) {
+            part.deleteIfExists()
+            throw e
+        }
+    }
+
+    private val separate: OkHttpClient by lazy { Http.client.newBuilder().protocols(listOf(Protocol.HTTP_1_1)).build() }
+
+    private class Source(val url: String, val length: Long, val ranges: Boolean)
+
+    private fun probe(url: String): Source = runCatching {
+        separate.newCall(Request.Builder().url(url).head().build()).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            Source(
+                url = response.request.url.toString(),
+                length = response.header("Content-Length")?.toLongOrNull() ?: -1,
+                ranges = response.header("Accept-Ranges").equals("bytes", ignoreCase = true),
+            )
+        }
+    }.getOrNull() ?: Source(url, -1, ranges = false)
+
+    private fun fetchRange(url: String, channel: FileChannel, start: Long, end: Long, meter: Meter) {
+        var position = start
+        var attempt = 0
+        while (position <= end) {
+            try {
+                val request = Request.Builder().url(url).header("Range", "bytes=$position-$end").header("Connection", "close").build()
+                separate.newCall(request).execute().use { response ->
+                    if (response.code != 206) throw IOException("HTTP ${response.code} при загрузке обновления")
+                    val input = response.body?.byteStream() ?: throw IOException("пустой ответ сервера обновлений")
+                    val buffer = ByteArray(1 shl 16)
+                    while (position <= end) {
+                        val n = input.read(buffer, 0, minOf(buffer.size.toLong(), end - position + 1).toInt())
+                        if (n <= 0) break
+                        channel.write(ByteBuffer.wrap(buffer, 0, n), position)
+                        position += n
+                        meter.add(n)
                     }
                 }
-                Files.move(part, target, StandardCopyOption.REPLACE_EXISTING)
-                target
-            } catch (e: Throwable) {
-                part.deleteIfExists()
-                throw e
+                if (position <= end) throw IOException("соединение оборвалось на загрузке обновления")
+            } catch (e: IOException) {
+                if (++attempt >= ATTEMPTS) throw e
+                Thread.sleep(RETRY_MILLIS * attempt)
             }
         }
+    }
+
+    private fun fetchWhole(url: String, part: Path, meter: Meter) {
+        separate.newCall(Http.request(url)).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("HTTP ${response.code} при загрузке обновления")
+            val body = response.body ?: throw IOException("пустой ответ сервера обновлений")
+            body.byteStream().use { input ->
+                Files.newOutputStream(part).use { output ->
+                    val buffer = ByteArray(1 shl 16)
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n <= 0) break
+                        output.write(buffer, 0, n)
+                        meter.add(n)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun sha256Of(file: Path): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        Files.newInputStream(file).use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val n = input.read(buffer)
+                if (n <= 0) break
+                digest.update(buffer, 0, n)
+            }
+        }
+        return digest.digest().toHex()
+    }
+
+    private class Meter(private val total: Long, private val report: (Float, Long) -> Unit) {
+        private val done = AtomicLong()
+        private var sampledAt = System.nanoTime()
+        private var sampledBytes = 0L
+        private var speed = 0L
+
+        fun add(bytes: Int) {
+            val now = done.addAndGet(bytes.toLong())
+            val time = System.nanoTime()
+            synchronized(this) {
+                val elapsed = time - sampledAt
+                if (elapsed < SAMPLE_NANOS && now < total) return
+                val instant = (now - sampledBytes) * 1_000_000_000L / elapsed.coerceAtLeast(1)
+                speed = if (speed == 0L) instant else (speed * 2 + instant) / 3
+                sampledAt = time
+                sampledBytes = now
+            }
+            if (total > 0) report((now.toDouble() / total).toFloat().coerceIn(0f, 1f), speed)
+        }
+    }
 
     internal fun msiArguments(installer: Path, desktopShortcut: Boolean, log: Path): String {
         val shortcut = if (desktopShortcut) "" else " JP_INSTALL_DESKTOP_SHORTCUT=\"\""
@@ -200,4 +308,9 @@ object Updater {
     }
 
     private const val READY_MILLIS = 10_000L
+    private const val STREAMS = 6
+    private const val PIECE_BYTES = 4L shl 20
+    private const val ATTEMPTS = 4
+    private const val RETRY_MILLIS = 500L
+    private const val SAMPLE_NANOS = 250_000_000L
 }

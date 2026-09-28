@@ -366,7 +366,7 @@ fun ThinProgress(fraction: Float, modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .height(6.dp)
             .clip(PillShape)
-            .background(JuxColors.SurfaceHigh)
+            .background(JuxColors.Background)
     ) {
         Box(
             Modifier

@@ -74,6 +74,7 @@ import ru.jux.launcher.ui.components.NoticeToast
 import ru.jux.launcher.ui.components.ReportOpen
 import ru.jux.launcher.ui.components.ThinProgress
 import ru.jux.launcher.ui.components.Wordmark
+import ru.jux.launcher.ui.components.formatSpeed
 import ru.jux.launcher.ui.dialogs.ModalHost
 import ru.jux.launcher.ui.screens.AccountsScreen
 import ru.jux.launcher.ui.screens.CatalogScreen
@@ -458,6 +459,12 @@ private fun UpdateCard(state: LauncherState) {
                 Text("Скачиваю ${current.update.version}", style = MaterialTheme.typography.labelLarge, color = JuxColors.Text)
                 Spacer(Modifier.height(10.dp))
                 ThinProgress(current.fraction)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    listOf("${(current.fraction * 100).toInt()}%", formatSpeed(current.bytesPerSecond)).filter { it.isNotEmpty() }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JuxColors.TextMuted,
+                )
             }
             is UpdateState.Installing -> {
                 Text("Устанавливаю ${current.update.version}", style = MaterialTheme.typography.labelLarge, color = JuxColors.Text)

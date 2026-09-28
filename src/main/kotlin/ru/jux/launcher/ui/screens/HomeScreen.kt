@@ -85,7 +85,6 @@ import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.servers.ServerEntry
-import ru.jux.launcher.ui.CatalogTab
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.PingState
@@ -243,12 +242,12 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             }
         }
 
-        WithTooltip(catalogHint(entry)) {
+        WithTooltip("Открыть папку: миры, скриншоты, моды и настройки") {
             ChoiceChip(
-                label = "Каталог",
+                label = "Папка",
                 selected = false,
-                onClick = { state.openCatalog(entry, catalogTabFor(entry)) },
-                icon = JuxIcons.Extension,
+                onClick = { state.openFolder(state.gameDirOf(entry)) },
+                icon = JuxIcons.Folder,
             )
         }
 
@@ -268,12 +267,6 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
         EntryMenuButton(state, entry)
     }
 }
-
-private fun catalogTabFor(entry: VersionEntry) = if (entry.loader.isModded) CatalogTab.MODS else CatalogTab.SHADERS
-
-private fun catalogHint(entry: VersionEntry): String =
-    if (entry.loader.isModded) "Моды, шейдеры и ресурспаки с Modrinth для этой сборки"
-    else "Шейдеры и ресурспаки с Modrinth для этой версии"
 
 private fun boostHint(entry: VersionEntry, options: InstanceOptions, fabricReady: Boolean): String = when {
     !fabricReady ->
@@ -301,34 +294,30 @@ private fun EntryMenuButton(state: LauncherState, entry: VersionEntry) {
             Icon(Icons.Default.MoreVert, "Действия со сборкой", tint = JuxColors.TextMuted, modifier = Modifier.size(20.dp))
         }
         JuxDropdownMenu(expanded = open, onDismissRequest = close) {
-            EntryMenuItems(state, entry, close, includePlay = false)
+            EntryMenuItems(state, entry, close, fromList = false)
         }
     }
 }
 
 @Composable
-fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit, includePlay: Boolean = true) {
+fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit, fromList: Boolean = true) {
     val installed = state.isEntryInstalled(entry)
     val hasFolder = remember(entry, state.instanceRevision) { state.gameDirOf(entry).exists() }
 
-    if (includePlay) {
+    if (fromList) {
         JuxMenuItem("Играть", icon = Icons.Default.PlayArrow, enabled = !state.busy, onClick = {
             close()
             state.selectEntry(entry)
             state.play()
         })
+        JuxMenuItem("Открыть папку", icon = JuxIcons.Folder, onClick = {
+            close()
+            state.openFolder(state.gameDirOf(entry))
+        })
     }
-    JuxMenuItem("Открыть папку", icon = JuxIcons.Folder, onClick = {
-        close()
-        state.openFolder(state.gameDirOf(entry))
-    })
     JuxMenuItem("Логи", icon = JuxIcons.Log, onClick = {
         close()
         state.showLogs(entry)
-    })
-    JuxMenuItem("Каталог…", icon = JuxIcons.Extension, onClick = {
-        close()
-        state.openCatalog(entry, catalogTabFor(entry))
     })
     JuxMenuItem("Ярлык на рабочем столе", icon = JuxIcons.OpenInNew, enabled = Shortcuts.isAvailable, onClick = {
         close()

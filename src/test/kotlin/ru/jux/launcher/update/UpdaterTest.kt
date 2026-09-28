@@ -13,6 +13,8 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.readBytes
@@ -73,6 +75,51 @@ class UpdaterTest {
             assertThrows<IOException> { runBlocking { Updater.download(wrong) } }
             assertTrue(file.parent.listDirectoryEntries().none { it.fileName.toString().startsWith("JuxLauncher-9.9.8") })
             assertTrue(file.exists())
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun `a server with ranges is downloaded in parallel pieces`() {
+        val payload = ByteArray(3 * 1024 * 1024 + 123) { (it * 7 + it / 1000).toByte() }
+        val ranges = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            executor = Executors.newFixedThreadPool(4)
+            createContext("/JuxLauncher-9.9.7.msi") { exchange ->
+                exchange.responseHeaders.add("Accept-Ranges", "bytes")
+                val range = exchange.requestHeaders.getFirst("Range")
+                when {
+                    exchange.requestMethod == "HEAD" -> {
+                        exchange.responseHeaders.add("Content-Length", payload.size.toString())
+                        exchange.sendResponseHeaders(200, -1)
+                    }
+                    range != null -> {
+                        ranges.incrementAndGet()
+                        val (start, end) = range.removePrefix("bytes=").split('-').map { it.toInt() }
+                        exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${payload.size}")
+                        exchange.sendResponseHeaders(206, (end - start + 1).toLong())
+                        exchange.responseBody.use { it.write(payload, start, end - start + 1) }
+                    }
+                    else -> {
+                        exchange.sendResponseHeaders(200, payload.size.toLong())
+                        exchange.responseBody.use { it.write(payload) }
+                    }
+                }
+                exchange.close()
+            }
+            start()
+        }
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/JuxLauncher-9.9.7.msi"
+            val hash = MessageDigest.getInstance("SHA-256").digest(payload).toHex()
+            var last = 0f
+
+            val file = runBlocking { Updater.download(UpdateManifest("9.9.7", url, hash), streams = 3, pieceBytes = 1L shl 20) { fraction, _ -> last = fraction } }
+
+            assertArrayEquals(payload, file.readBytes())
+            assertEquals(4, ranges.get())
+            assertEquals(1f, last)
         } finally {
             server.stop(0)
         }
