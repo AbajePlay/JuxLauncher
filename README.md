@@ -37,4 +37,14 @@ gradlew run
 gradlew packageReleaseDistributionForCurrentOS
 ```
 
+## Лицензия
+
+Код JuxLauncher распространяется по [GNU GPL версии 3](LICENSE): его можно
+использовать, изменять и распространять, но изменённая версия обязана выходить
+под той же лицензией и с открытым исходным кодом.
+
 Шрифт Montserrat распространяется по SIL Open Font License 1.1.
+
+Minecraft, его файлы, текстуры и названия принадлежат Mojang Studios и под эту
+лицензию не подпадают. JuxLauncher не является официальным продуктом Minecraft
+и не связан с Mojang Studios и Microsoft.
