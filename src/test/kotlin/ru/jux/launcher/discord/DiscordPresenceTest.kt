@@ -19,6 +19,7 @@ class DiscordPresenceTest {
         val activity = DiscordPresence.activity(Presence.Launcher)
         assertEquals("В лаунчере", activity.text("details"))
         assertEquals(DiscordPresence.LOGO, activity["assets"]!!.jsonObject.text("large_image"))
+        assertEquals("https://juxmc.ru/", activity["assets"]!!.jsonObject.text("large_url"))
         assertFalse("timestamps" in activity)
         val buttons = activity["buttons"]!!.jsonArray.map { it.jsonObject }
         assertEquals(listOf(DiscordPresence.DOWNLOAD_LABEL), buttons.map { it.text("label") })
@@ -36,8 +37,23 @@ class DiscordPresenceTest {
         assertEquals(1_790_000_000L, activity["timestamps"]!!.jsonObject["start"]!!.jsonPrimitive.long)
         val assets = activity["assets"]!!.jsonObject
         assertEquals(DiscordPresence.LOGO, assets.text("large_image"))
+        assertEquals(DiscordPresence.SITE_URL, assets.text("large_url"))
         assertFalse("small_image" in assets)
         assertEquals(1, activity["buttons"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `the server icon sits in the corner, and only when the server has one`() {
+        val icon = DiscordPresence.serverIcon("mc.virtusmine.fun")
+        assertEquals("https://api.mcsrvstat.us/icon/mc.virtusmine.fun", icon)
+        val withIcon = DiscordPresence.activity(Presence.Playing("1.21.11", "Fabric", "mc.virtusmine.fun", 0, 0, serverIcon = icon))
+            .getValue("assets").jsonObject
+        assertEquals(icon, withIcon.text("small_image"))
+        assertEquals("mc.virtusmine.fun", withIcon.text("small_text"))
+        val noIcon = DiscordPresence.activity(Presence.Playing("1.21.11", "Fabric", "mc.virtusmine.fun", 0, 0))
+            .getValue("assets").jsonObject
+        assertFalse("small_image" in noIcon)
+        assertFalse("small_text" in noIcon)
     }
 
     @Test

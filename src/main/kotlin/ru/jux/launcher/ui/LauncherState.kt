@@ -687,6 +687,7 @@ class LauncherState(
         scope.launch(Dispatchers.IO) {
             val tail = GameEvents.Tail(logFile)
             var shown = start
+            var iconOf: String? = null
             while (process.isAlive) {
                 delay(GAME_LOG_POLL_MILLIS)
                 var next = shown
@@ -697,6 +698,10 @@ class LauncherState(
                         null -> Unit
                     }
                 }
+                if (next.server != iconOf) {
+                    iconOf = next.server
+                    next = next.copy(serverIcon = next.server?.let { serverIcon(it) })
+                }
                 if (next != shown && process.isAlive) {
                     shown = next
                     DiscordPresence.show(next)
@@ -704,6 +709,9 @@ class LauncherState(
             }
         }
     }
+
+    private suspend fun serverIcon(address: String): String? =
+        ServerPing.ping(address)?.favicon?.let { DiscordPresence.serverIcon(address) }
 
     fun playFromShortcut(request: PlayRequest, gameRunning: Boolean) {
         if (busy) {

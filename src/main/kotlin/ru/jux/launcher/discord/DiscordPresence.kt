@@ -28,6 +28,7 @@ sealed interface Presence {
         val mods: Int,
         val startedAt: Long,
         val pack: String? = null,
+        val serverIcon: String? = null,
     ) : Presence
 }
 
@@ -37,8 +38,11 @@ object DiscordPresence {
 
     const val DOWNLOAD_LABEL = "Скачать"
     const val PAGE_URL = "https://juxmc.ru/launcher/"
+    const val SITE_URL = "https://juxmc.ru/"
     private const val ART = "https://raw.githubusercontent.com/AbajePlay/JuxLauncher/main/branding/presence"
     const val LOGO = "$ART/logo.png"
+
+    fun serverIcon(address: String): String = "https://api.mcsrvstat.us/icon/$address"
 
     private const val RETRY_MILLIS = 15_000L
 
@@ -104,6 +108,7 @@ object DiscordPresence {
                 putJsonObject("assets") {
                     put("large_image", LOGO)
                     put("large_text", "JuxLauncher — лаунчер Minecraft")
+                    put("large_url", SITE_URL)
                 }
             }
             is Presence.Playing -> {
@@ -113,6 +118,11 @@ object DiscordPresence {
                 putJsonObject("assets") {
                     put("large_image", LOGO)
                     put("large_text", "Minecraft ${presence.versionId} через JuxLauncher")
+                    put("large_url", SITE_URL)
+                    if (presence.server != null && presence.serverIcon != null) {
+                        put("small_image", presence.serverIcon)
+                        put("small_text", presence.server)
+                    }
                 }
             }
         }
