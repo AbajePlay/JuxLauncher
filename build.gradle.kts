@@ -112,6 +112,15 @@ tasks.register<JavaExec>("smokeLoaders") {
     args((findProperty("targets") as String? ?: "").split(',').filter { it.isNotBlank() })
 }
 
+tasks.register<JavaExec>("smokeCarryOver") {
+    group = "verification"
+    description = "Runs the carry-over flow end to end in a sandboxed home; -Pclick=x,y clicks the dialog's main button"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("ru.jux.launcher.dev.CarrySmokeKt")
+    systemProperty("user.home", layout.buildDirectory.dir("carry-smoke-home").get().asFile.absolutePath)
+    args(listOfNotNull(layout.buildDirectory.dir("preview").get().asFile.absolutePath, findProperty("click") as String?))
+}
+
 val desktopInstallDir = File(System.getProperty("user.home"), "JuxLauncher")
 
 val deployDesktop = tasks.register("deployDesktop") {

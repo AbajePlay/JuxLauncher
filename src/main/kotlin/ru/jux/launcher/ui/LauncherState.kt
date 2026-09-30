@@ -17,11 +17,13 @@ import androidx.compose.ui.input.key.type
 import java.io.IOException
 import java.nio.file.Path
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.activity.ActivityStats
@@ -45,6 +47,10 @@ import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.discord.GameEvent
 import ru.jux.launcher.discord.GameEvents
 import ru.jux.launcher.discord.Presence
+import ru.jux.launcher.instance.CarryOver
+import ru.jux.launcher.instance.CarryPlan
+import ru.jux.launcher.instance.CarryResult
+import ru.jux.launcher.instance.CarrySource
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.launch.GameLauncher
@@ -67,6 +73,7 @@ import ru.jux.launcher.servers.ServerEntry
 import ru.jux.launcher.servers.ServerPing
 import ru.jux.launcher.servers.ServerStatus
 import ru.jux.launcher.servers.Servers
+import ru.jux.launcher.ui.screens.plural
 import ru.jux.launcher.update.UpdateManifest
 import ru.jux.launcher.update.Updater
 
@@ -96,6 +103,12 @@ enum class CatalogTab { PACKS, MODS, SHADERS, RESOURCE_PACKS, INSTALLED }
 sealed interface Modal {
     data class Delete(val entry: VersionEntry) : Modal
     data class Logs(val gameDir: Path?, val title: String, val source: LogSource) : Modal
+    data class Carry(
+        val entry: VersionEntry,
+        val sources: List<CarrySource>,
+        val firstLaunch: Boolean,
+        val targetHasOptions: Boolean,
+    ) : Modal
 }
 
 sealed interface PingState {
@@ -199,6 +212,7 @@ class LauncherState(
     private var job: Job? = null
     private var jobToken: Any? = null
     private var pendingPlay: Boolean = false
+    private var carryAnswer: CompletableDeferred<Pair<CarrySource, CarryPlan>?>? = null
 
     val accounts = AccountManager.accounts
     val selectedAccount = AccountManager.selected
@@ -595,6 +609,7 @@ class LauncherState(
 
     private suspend fun launch(entry: VersionEntry, account: Account, serverAddress: String?, skipModCheck: Boolean) {
         val gameDir = gameDirOf(entry)
+        if (!offerCarryOver(entry, gameDir)) return
         if (!skipModCheck && entry.loader.isModded) {
             val conflicts = withContext(Dispatchers.IO) {
                 runCatching { ModCompat.conflictsIn(ModManager.modsDir(gameDir)) }.getOrDefault(emptyList())
@@ -638,6 +653,94 @@ class LauncherState(
         OnlineCounter.setPlaying(true)
         watchGame(result.process, result.logFile, playing)
         onGameStarted(result.process)
+    }
+
+    private suspend fun offerCarryOver(entry: VersionEntry, gameDir: Path): Boolean {
+        val withShaders = supportsShaders(entry)
+        val found = withContext(Dispatchers.IO) {
+            if (!CarryOver.isFresh(gameDir)) return@withContext null
+            val hasOptions = CarryOver.hasOwnOptions(gameDir)
+            val sources = runCatching { CarryOver.sources(gameDir, withShaders) }
+                .onFailure { Log.warn("carry-over lookup failed: ${it.message}") }
+                .getOrDefault(emptyList())
+                .filter { !hasOptions || !it.onlyOptions }
+            sources.takeIf { it.isNotEmpty() }?.let { it to hasOptions }
+        } ?: return true
+        val answer = CompletableDeferred<Pair<CarrySource, CarryPlan>?>()
+        carryAnswer = answer
+        stageChanged("Ждёт выбора: что перенести")
+        modal = Modal.Carry(entry, found.first, firstLaunch = true, targetHasOptions = found.second)
+        val choice = try {
+            answer.await()
+        } finally {
+            carryAnswer = null
+            if (modal is Modal.Carry) modal = null
+        }
+        val (source, plan) = choice ?: return false
+        if (!plan.isEmpty) carry(entry, source, plan, gameDir)
+        return true
+    }
+
+    fun answerCarry(source: CarrySource, plan: CarryPlan) {
+        carryAnswer?.complete(source to plan)
+        if (modal is Modal.Carry) modal = null
+    }
+
+    fun dismissCarry() {
+        carryAnswer?.complete(null)
+        if (modal is Modal.Carry) modal = null
+    }
+
+    fun offerCarryInto(entry: VersionEntry) {
+        if (busy) return
+        scope.launch {
+            val gameDir = gameDirOf(entry)
+            val withShaders = supportsShaders(entry)
+            val (sources, hasOptions) = withContext(Dispatchers.IO) {
+                val sources = runCatching { CarryOver.sources(gameDir, withShaders) }
+                    .onFailure { Log.warn("carry-over lookup failed: ${it.message}") }
+                    .getOrDefault(emptyList())
+                sources to CarryOver.hasOwnOptions(gameDir)
+            }
+            if (sources.isEmpty()) {
+                inform("Не нашёл других версий с настройками, серверами или мирами", entry, level = NoticeLevel.INFO)
+            } else if (!busy) {
+                modal = Modal.Carry(entry, sources, firstLaunch = false, targetHasOptions = hasOptions)
+            }
+        }
+    }
+
+    fun carryInto(entry: VersionEntry, source: CarrySource, plan: CarryPlan) {
+        if (modal is Modal.Carry) modal = null
+        if (plan.isEmpty) return
+        startJob(entry, "carry") { carry(entry, source, plan, gameDirOf(entry)) }
+    }
+
+    private suspend fun carry(entry: VersionEntry, source: CarrySource, plan: CarryPlan, gameDir: Path) {
+        stageChanged("Переношу из ${source.label}")
+        val result = withContext(Dispatchers.IO) {
+            CarryOver.apply(source, gameDir, plan, onProgress = { progress = it }, checkCancelled = { ensureActive() })
+        }
+        stageChanged("")
+        instanceChanged(entry)
+        carried(result)?.let { inform("Из ${source.label}: $it", entry, "Перенесено в ${entry.label}") }
+        if (result.failed.isNotEmpty()) {
+            fail("Не скопировалось: ${result.failed.joinToString(", ")}. Подробности в логе лаунчера.", entry, "Перенесено не всё")
+        }
+    }
+
+    private fun carried(result: CarryResult): String? {
+        val parts = listOfNotNull(
+            "настройки".takeIf { result.options },
+            result.servers.takeIf { it > 0 }?.let { "$it ${plural(it, "сервер", "сервера", "серверов")}" },
+            result.packs.takeIf { it > 0 }?.let { "$it ${plural(it, "пак", "пака", "паков")}" },
+            result.worlds.takeIf { it > 0 }?.let { "$it ${plural(it, "мир", "мира", "миров")}" },
+        )
+        return when (parts.size) {
+            0 -> null
+            1 -> parts.single()
+            else -> parts.dropLast(1).joinToString(", ") + " и " + parts.last()
+        }
     }
 
     fun updatePack(pack: Modpack) {
@@ -981,6 +1084,7 @@ class LauncherState(
             "reinstall" to "Переустановка не удалась",
             "fix mods" to "Моды не исправлены",
             "pack" to "Сборка не установилась",
+            "carry" to "Перенос не удался",
         )
         const val NO_VERSIONS = "Не удалось получить список версий. Проверьте интернет и перезапустите лаунчер."
     }

@@ -329,6 +329,10 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
         close()
         state.createShortcut(entry)
     })
+    JuxMenuItem("Перенести из версии…", icon = JuxIcons.MoveIn, enabled = !state.busy, onClick = {
+        close()
+        state.offerCarryInto(entry)
+    })
     MenuDivider()
     JuxMenuItem("Переустановить", icon = Icons.Default.Refresh, enabled = (installed || entry.pack != null) && !state.busy, onClick = {
         close()

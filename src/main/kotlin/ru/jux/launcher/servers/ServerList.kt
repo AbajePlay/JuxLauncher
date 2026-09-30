@@ -168,6 +168,35 @@ object ServerList {
         }
     }
 
+    fun missingIn(from: Path, into: Path): Int = missing(from, into).size
+
+    fun merge(from: Path, into: Path): Int {
+        val added = missing(from, into)
+        if (added.isEmpty()) return 0
+        val file = into.resolve(FILE_NAME)
+        val root = if (file.exists()) Nbt.readRoot(file.readBytes()) else Nbt.CompoundTag(emptyMap())
+        val servers = (root.entries["servers"] as? Nbt.ListTag)?.items.orEmpty()
+        val updated = Nbt.CompoundTag(root.entries + ("servers" to Nbt.ListTag(10, servers + added)))
+        file.writeAtomically(Nbt.writeRoot(updated))
+        return added.size
+    }
+
+    private fun missing(from: Path, into: Path): List<Nbt.CompoundTag> {
+        val known = (entries(into).mapNotNull(::addressOf) + Servers.all.map { it.address }).map(::normalize).toSet()
+        return entries(from)
+            .filter { !isHidden(it) }
+            .filter { server -> addressOf(server)?.let(::normalize)?.let { it.isNotEmpty() && it !in known } == true }
+            .distinctBy { addressOf(it)?.let(::normalize) }
+    }
+
+    private fun entries(gameDir: Path): List<Nbt.CompoundTag> {
+        val file = gameDir.resolve(FILE_NAME)
+        if (!file.exists()) return emptyList()
+        return (Nbt.readRoot(file.readBytes()).entries["servers"] as? Nbt.ListTag)?.items.orEmpty().filterIsInstance<Nbt.CompoundTag>()
+    }
+
+    private fun addressOf(server: Nbt.CompoundTag): String? = (server.entries["ip"] as? Nbt.StringTag)?.value
+
     private fun isHidden(server: Nbt.CompoundTag): Boolean =
         ((server.entries["hidden"] as? Nbt.ByteTag)?.value ?: 0).toInt() != 0
 

@@ -1,6 +1,12 @@
 package ru.jux.launcher.dev
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +19,9 @@ import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.core.Notices
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Preloader
+import ru.jux.launcher.instance.CarryPack
+import ru.jux.launcher.instance.CarrySource
+import ru.jux.launcher.instance.CarryWorld
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.packs.Modpack
@@ -24,8 +33,11 @@ import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.Screen
 import ru.jux.launcher.ui.SplashContent
+import ru.jux.launcher.ui.components.JuxDropdownMenu
+import ru.jux.launcher.ui.screens.EntryMenuItems
 import ru.jux.launcher.ui.theme.JuxTheme
 import java.io.File
+import java.nio.file.Path
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlin.system.exitProcess
@@ -110,12 +122,28 @@ fun main(args: Array<String>) {
     val dialogs = listOfNotNull(
         entry?.let { "dialog-delete" to Modal.Delete(it) },
         entry?.let { "dialog-logs" to Modal.Logs(state.gameDirOf(it), it.label, LogSource.GAME) },
+        entry?.let { "dialog-carry-first" to Modal.Carry(it, previewSources(state, first = true), firstLaunch = true, targetHasOptions = false) },
+        entry?.let { "dialog-carry-manual" to Modal.Carry(it, previewSources(state, first = false), firstLaunch = false, targetHasOptions = true) },
     )
     for ((name, modal) in dialogs) {
         state.modal = modal
         render(name, 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     }
     state.modal = null
+
+    val menuEntry = state.entryFor("26.3", LoaderKind.FABRIC)
+    render("menu-entry", 1040, 660) {
+        JuxTheme {
+            Box(Modifier.fillMaxSize()) {
+                App(state, onGameStarted = {})
+                Box(Modifier.offset(x = 470.dp, y = 372.dp).size(1.dp)) {
+                    JuxDropdownMenu(expanded = true, onDismissRequest = {}) {
+                        EntryMenuItems(state, menuEntry, close = {})
+                    }
+                }
+            }
+        }
+    }
 
     for (tab in listOf(CatalogTab.MODS, CatalogTab.SHADERS, CatalogTab.INSTALLED)) {
         state.openCatalog(tab = tab)
@@ -138,4 +166,28 @@ fun main(args: Array<String>) {
     withPack.openCatalog(tab = CatalogTab.PACKS)
     render("catalog-packs-installed", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
     exitProcess(0)
+}
+
+private fun previewSources(state: LauncherState, first: Boolean): List<CarrySource> {
+    val mb = 1024L * 1024
+    val newest = state.versions.firstOrNull()?.id
+    val current = state.currentEntry()?.id ?: "26.2"
+    val versions = CarrySource(
+        dir = Path.of("26.2"),
+        label = "26.2",
+        official = false,
+        lastPlayed = 0,
+        options = true,
+        servers = 3,
+        packs = listOf(CarryPack("resourcepacks/Faithful 32x.zip", 42 * mb)),
+        worlds = listOf(
+            CarryWorld("Survival", "Выживание с другом", current, 1_380 * mb, false),
+            CarryWorld("Creative", "Креатив", current, 240 * mb, false),
+            CarryWorld("Snapshot", "Тест снапшота", newest, 18 * mb, false),
+            CarryWorld("New World", "New World", "26.1", 64 * mb, true),
+        ),
+    )
+    val fabric = versions.copy(dir = Path.of("26.2-fabric"), label = "26.2 Fabric", servers = 0, packs = emptyList())
+    val official = versions.copy(dir = Path.of(".minecraft"), label = ".minecraft", official = true)
+    return if (first) listOf(versions, fabric, official) else listOf(official)
 }
