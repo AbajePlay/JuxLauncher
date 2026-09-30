@@ -1,7 +1,6 @@
 package ru.jux.launcher.servers
 
 import ru.jux.launcher.core.Log
-import ru.jux.launcher.core.writeAtomically
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInput
@@ -9,8 +8,14 @@ import java.io.DataInputStream
 import java.io.DataOutput
 import java.io.DataOutputStream
 import java.io.IOException
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileTime
+import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.readBytes
 
 internal sealed interface Nbt {
@@ -140,31 +145,53 @@ internal sealed interface Nbt {
 object ServerList {
 
     const val FILE_NAME = "servers.dat"
+    private const val GAME_BACKUP = "servers.dat_old"
 
-    fun ensure(gameDir: Path, name: String, address: String): Boolean {
+    fun seedDefaults(gameDir: Path, defaults: List<ServerEntry> = Servers.all) {
+        runCatching { pin(gameDir, defaults, repair = true) }
+            .onSuccess { changed -> if (changed) Log.info("pinned ${defaults.joinToString { it.address }} on top of the multiplayer list of $gameDir") }
+            .onFailure { Log.warn("could not pin the servers in $FILE_NAME of $gameDir: ${it.message}") }
+    }
+
+    internal fun pin(gameDir: Path, defaults: List<ServerEntry>, repair: Boolean): Boolean {
         val file = gameDir.resolve(FILE_NAME)
-        val root = if (file.exists()) Nbt.readRoot(file.readBytes()) else Nbt.CompoundTag(emptyMap())
-        val servers = (root.entries["servers"] as? Nbt.ListTag)?.items.orEmpty()
-        val wanted = normalize(address)
-        val matching = servers.filterIsInstance<Nbt.CompoundTag>().filter { server ->
-            (server.entries["ip"] as? Nbt.StringTag)?.value?.let(::normalize) == wanted
+        val stamp = stampOf(file)
+        val missing = Files.notExists(file)
+        val read = if (missing) null else parse(file)
+        if (read == null && !repair) return false
+        val root = read ?: if (missing) Nbt.CompoundTag(emptyMap()) else recover(gameDir)
+        val servers = (root.entries["servers"] as? Nbt.ListTag)?.items.orEmpty().filterIsInstance<Nbt.CompoundTag>()
+        val ours = defaults.map { normalize(it.address) }.toSet()
+        val pinned = defaults.map { server ->
+            val matching = servers.filter { addressOf(it)?.let(::normalize) == normalize(server.address) }
+            val kept = matching.firstOrNull { !isHidden(it) } ?: matching.firstOrNull()
+                ?: return@map Nbt.CompoundTag(linkedMapOf("name" to Nbt.StringTag(server.name), "ip" to Nbt.StringTag(server.address)))
+            val shown = if (isHidden(kept)) mapOf("hidden" to Nbt.ByteTag(0)) else emptyMap()
+            Nbt.CompoundTag(kept.entries + ("name" to Nbt.StringTag(server.name)) + shown)
         }
-        if (matching.any { !isHidden(it) }) return false
-        val hidden = matching.firstOrNull()
-        val entry = hidden
-            ?.let { Nbt.CompoundTag(it.entries + ("name" to Nbt.StringTag(name)) + ("hidden" to Nbt.ByteTag(0))) }
-            ?: Nbt.CompoundTag(linkedMapOf("name" to Nbt.StringTag(name), "ip" to Nbt.StringTag(address)))
-        val rest = servers.filter { it !== hidden }
-        val updated = Nbt.CompoundTag(root.entries + ("servers" to Nbt.ListTag(10, listOf(entry) + rest)))
-        file.writeAtomically(Nbt.writeRoot(updated))
+        val updated = pinned + servers.filter { addressOf(it)?.let(::normalize) !in ours }
+        if (read != null && (updated == servers || stampOf(file) != stamp)) return false
+        write(file, Nbt.CompoundTag(root.entries + ("servers" to Nbt.ListTag(10, updated))))
         return true
     }
 
-    fun seedDefaults(gameDir: Path, defaults: List<ServerEntry> = Servers.all) {
-        defaults.forEach { server ->
-            runCatching { ensure(gameDir, server.name, server.address) }
-                .onSuccess { added -> if (added) Log.info("added ${server.address} to the multiplayer list of $gameDir") }
-                .onFailure { Log.warn("could not add ${server.address} to $FILE_NAME: ${it.message}") }
+    class Guard(private val gameDir: Path, private val defaults: List<ServerEntry> = Servers.all) {
+        private val file = gameDir.resolve(FILE_NAME)
+        private var seen = stampOf(file)
+        private var failed: Stamp? = null
+
+        fun check() {
+            val now = stampOf(file)
+            if (now == null || now == seen) return
+            runCatching { pin(gameDir, defaults, repair = false) }
+                .onSuccess { changed ->
+                    seen = now
+                    if (changed) Log.info("the multiplayer list of $gameDir changed, pinned ${defaults.joinToString { it.address }} again")
+                }
+                .onFailure {
+                    if (failed != now) Log.warn("could not pin the servers in $file again: ${it.message}")
+                    failed = now
+                }
         }
     }
 
@@ -177,9 +204,46 @@ object ServerList {
         val root = if (file.exists()) Nbt.readRoot(file.readBytes()) else Nbt.CompoundTag(emptyMap())
         val servers = (root.entries["servers"] as? Nbt.ListTag)?.items.orEmpty()
         val updated = Nbt.CompoundTag(root.entries + ("servers" to Nbt.ListTag(10, servers + added)))
-        file.writeAtomically(Nbt.writeRoot(updated))
+        write(file, updated)
         return added.size
     }
+
+    private fun parse(file: Path): Nbt.CompoundTag? {
+        if (!file.isRegularFile()) return null
+        val bytes = file.readBytes()
+        return try {
+            Nbt.readRoot(bytes)
+        } catch (_: IOException) {
+            null
+        }
+    }
+
+    private fun recover(gameDir: Path): Nbt.CompoundTag {
+        val broken = gameDir.resolve(FILE_NAME)
+        val aside = gameDir.resolve("$FILE_NAME.broken-${System.currentTimeMillis()}")
+        Files.move(broken, aside)
+        val backup = gameDir.resolve(GAME_BACKUP)
+        val restored = runCatching { parse(backup) }.getOrNull()
+        Log.warn("$broken could not be read, kept it as ${aside.fileName} and rebuilt the list${if (restored != null) " from $GAME_BACKUP" else ""}")
+        return restored ?: Nbt.CompoundTag(emptyMap())
+    }
+
+    private fun write(file: Path, root: Nbt.CompoundTag) {
+        file.parent.createDirectories()
+        file.toFile().takeIf { it.isFile && !it.canWrite() }?.setWritable(true)
+        val tmp = Files.createTempFile(file.parent, "servers", ".tmp")
+        try {
+            Files.write(tmp, Nbt.writeRoot(root))
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            Files.deleteIfExists(tmp)
+        }
+    }
+
+    private data class Stamp(val modified: FileTime, val size: Long)
+
+    private fun stampOf(file: Path): Stamp? =
+        runCatching { Files.readAttributes(file, BasicFileAttributes::class.java) }.getOrNull()?.let { Stamp(it.lastModifiedTime(), it.size()) }
 
     private fun missing(from: Path, into: Path): List<Nbt.CompoundTag> {
         val known = (entries(into).mapNotNull(::addressOf) + Servers.all.map { it.address }).map(::normalize).toSet()

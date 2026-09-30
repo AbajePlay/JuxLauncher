@@ -70,6 +70,7 @@ import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.packs.Modpacks
 import ru.jux.launcher.packs.PackSource
 import ru.jux.launcher.servers.ServerEntry
+import ru.jux.launcher.servers.ServerList
 import ru.jux.launcher.servers.ServerPing
 import ru.jux.launcher.servers.ServerStatus
 import ru.jux.launcher.servers.Servers
@@ -651,7 +652,7 @@ class LauncherState(
         )
         DiscordPresence.show(playing)
         OnlineCounter.setPlaying(true)
-        watchGame(result.process, result.logFile, playing)
+        watchGame(result.process, result.logFile, result.gameDir, playing)
         onGameStarted(result.process)
     }
 
@@ -786,13 +787,15 @@ class LauncherState(
         }
     }
 
-    private fun watchGame(process: Process, logFile: Path, start: Presence.Playing) {
+    private fun watchGame(process: Process, logFile: Path, gameDir: Path, start: Presence.Playing) {
         scope.launch(Dispatchers.IO) {
             val tail = GameEvents.Tail(logFile)
+            val serverList = ServerList.Guard(gameDir)
             var shown = start
             var iconOf: String? = null
             while (process.isAlive) {
                 delay(GAME_LOG_POLL_MILLIS)
+                serverList.check()
                 var next = shown
                 tail.lines().forEach { line ->
                     when (val event = GameEvents.parse(line)) {
