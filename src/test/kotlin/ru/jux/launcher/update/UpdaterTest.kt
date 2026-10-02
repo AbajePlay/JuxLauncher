@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.readBytes
+import kotlin.io.path.writeBytes
 
 class UpdaterTest {
 
@@ -38,11 +39,15 @@ class UpdaterTest {
     @Test
     fun `an update does not bring back a removed desktop shortcut`() {
         val msi = Path.of("JuxLauncher-1.5.5.msi")
+        val dir = Path.of("Jux Launcher")
         val log = Path.of("install.log")
-        assertEquals("/i \"JuxLauncher-1.5.5.msi\" /qn /norestart /l*v \"install.log\"", Updater.msiArguments(msi, desktopShortcut = true, log))
         assertEquals(
-            "/i \"JuxLauncher-1.5.5.msi\" /qn /norestart JP_INSTALL_DESKTOP_SHORTCUT=\"\" /l*v \"install.log\"",
-            Updater.msiArguments(msi, desktopShortcut = false, log),
+            "/i \"JuxLauncher-1.5.5.msi\" /qn /norestart INSTALLDIR=\"Jux Launcher\" /l*v \"install.log\"",
+            Updater.msiArguments(msi, dir, desktopShortcut = true, log),
+        )
+        assertEquals(
+            "/i \"JuxLauncher-1.5.5.msi\" /qn /norestart INSTALLDIR=\"Jux Launcher\" JP_INSTALL_DESKTOP_SHORTCUT=\"\" /l*v \"install.log\"",
+            Updater.msiArguments(msi, dir, desktopShortcut = false, log),
         )
     }
 
@@ -75,6 +80,11 @@ class UpdaterTest {
             assertThrows<IOException> { runBlocking { Updater.download(wrong) } }
             assertTrue(file.parent.listDirectoryEntries().none { it.fileName.toString().startsWith("JuxLauncher-9.9.8") })
             assertTrue(file.exists())
+
+            val stale = file.resolveSibling("JuxLauncher-1.0.0.msi").apply { writeBytes(payload) }
+            val again = runBlocking { Updater.download(UpdateManifest("9.9.9", url, hash)) }
+            assertEquals(listOf(again), again.parent.listDirectoryEntries())
+            assertFalse(stale.exists())
         } finally {
             server.stop(0)
         }

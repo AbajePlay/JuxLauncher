@@ -182,11 +182,14 @@ fun forceDelete(dir: File) {
 
 fun ensureDesktopShortcut(exe: File, icon: File, rewrite: Boolean) {
     val desktops = listOfNotNull(System.getenv("USERPROFILE"), System.getenv("OneDrive")).map { File(it, "Desktop") }
-    if (!rewrite && desktops.any { it.resolve("JuxLauncher.lnk").exists() }) return
+    val existing = desktops.asSequence()
+        .flatMap { it.walk().maxDepth(2) }
+        .firstOrNull { it.isFile && it.name.equals("JuxLauncher.lnk", ignoreCase = true) }
+    if (!rewrite && existing != null) return
 
     fun literal(value: String) = "'" + value.replace("'", "''") + "'"
     val script = listOf(
-        "\$path = Join-Path ([Environment]::GetFolderPath('Desktop')) 'JuxLauncher.lnk'",
+        "\$path = " + (existing?.let { literal(it.absolutePath) } ?: "Join-Path ([Environment]::GetFolderPath('Desktop')) 'JuxLauncher.lnk'"),
         "\$link = (New-Object -ComObject WScript.Shell).CreateShortcut(\$path)",
         "\$link.TargetPath = ${literal(exe.absolutePath)}",
         "\$link.WorkingDirectory = ${literal(exe.parent)}",

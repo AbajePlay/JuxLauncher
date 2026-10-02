@@ -156,6 +156,7 @@ object Updater {
                 throw IOException("контрольная сумма обновления не сошлась — файл повреждён или подменён")
             }
             Files.move(part, target, StandardCopyOption.REPLACE_EXISTING)
+            Files.list(dir).use { files -> files.filter { it != target }.forEach { runCatching { it.deleteIfExists() } } }
             target
         } catch (e: Throwable) {
             part.deleteIfExists()
@@ -215,9 +216,9 @@ object Updater {
         }
     }
 
-    internal fun msiArguments(installer: Path, desktopShortcut: Boolean, log: Path): String {
+    internal fun msiArguments(installer: Path, installDir: Path, desktopShortcut: Boolean, log: Path): String {
         val shortcut = if (desktopShortcut) "" else " JP_INSTALL_DESKTOP_SHORTCUT=\"\""
-        return "/i \"$installer\" /qn /norestart$shortcut /l*v \"$log\""
+        return "/i \"$installer\" /qn /norestart INSTALLDIR=\"$installDir\"$shortcut /l*v \"$log\""
     }
 
     private suspend fun startInstaller(installer: Path, app: Path, version: String) {
@@ -230,7 +231,7 @@ object Updater {
             UpdateSplash.script(
                 launcher = ProcessHandle.current().pid(),
                 installer = if (msi) "msiexec.exe" else installer.toString(),
-                arguments = if (msi) msiArguments(installer, Shortcuts.appOnDesktop(app).exists(), dir.resolve("install.log")) else "",
+                arguments = if (msi) msiArguments(installer, app.parent, Shortcuts.appOnDesktop(app).exists(), dir.resolve("install.log")) else "",
                 app = app,
                 assets = dir,
                 version = version,
