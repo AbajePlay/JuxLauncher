@@ -23,7 +23,7 @@ one-click FPS boost and auto-updates.*
 
 ## Установка
 
-1. Скачай `JuxLauncher-x.x.x.msi` на [странице релизов](https://github.com/AbajePlay/JuxLauncher/releases/latest).
+1. Скачай [`JuxLauncher.msi`](https://github.com/AbajePlay/JuxLauncher/releases/latest/download/JuxLauncher.msi) — ссылка всегда ведёт на последнюю версию.
 2. Запусти установщик. Если Windows покажет «Система Windows защитила ваш компьютер» —
    нажми «Подробнее» → «Выполнить в любом случае».
 3. Дальше лаунчер обновляется сам.
