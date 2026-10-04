@@ -140,7 +140,7 @@ object DiscordPresence {
             .take(128)
 
     private fun stateOf(playing: Presence.Playing): String = when {
-        playing.server != null -> "На сервере ${playing.server}".take(128)
+        playing.server != null -> "Сервер: ${playing.server}".take(128)
         playing.mods > 0 -> "${playing.mods} ${modsWord(playing.mods)}"
         playing.loaderLabel != null -> "Без модов"
         else -> "Ванильная игра"

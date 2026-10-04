@@ -59,7 +59,7 @@ class DiscordPresenceTest {
     @Test
     fun `server wins over mods, vanilla says so`() {
         val onServer = DiscordPresence.activity(Presence.Playing("1.21.11", "Fabric", "mc.virtusmine.fun", 20, 0))
-        assertEquals("На сервере mc.virtusmine.fun", onServer.text("state"))
+        assertEquals("Сервер: mc.virtusmine.fun", onServer.text("state"))
         val vanilla = DiscordPresence.activity(Presence.Playing("26.3", null, null, 0, 0))
         assertEquals("Minecraft 26.3", vanilla.text("details"))
         assertEquals("Ванильная игра", vanilla.text("state"))
