@@ -16,6 +16,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.online.JuxSite
 import java.io.IOException
 
 sealed interface Presence {
@@ -37,8 +38,8 @@ object DiscordPresence {
     const val APP_ID = "1553784416487346326"
 
     const val DOWNLOAD_LABEL = "Скачать"
-    const val PAGE_URL = "https://juxmc.ru/launcher/"
-    const val SITE_URL = "https://juxmc.ru/"
+    const val PAGE_URL = "${JuxSite.ORIGIN}/launcher/"
+    const val SITE_URL = "${JuxSite.ORIGIN}/"
     private const val ART = "https://raw.githubusercontent.com/AbajePlay/JuxLauncher/main/branding/presence"
     const val LOGO = "$ART/logo.png"
 

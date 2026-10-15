@@ -208,6 +208,22 @@ object ServerList {
         return added.size
     }
 
+    fun add(gameDir: Path, server: ServerEntry): Boolean {
+        val file = gameDir.resolve(FILE_NAME)
+        val root = parse(file) ?: if (Files.notExists(file)) Nbt.CompoundTag(emptyMap()) else return false
+        val servers = (root.entries["servers"] as? Nbt.ListTag)?.items.orEmpty().filterIsInstance<Nbt.CompoundTag>()
+        val address = normalize(server.address)
+        val known = servers.filter { addressOf(it)?.let(::normalize) == address }
+        if (known.any { !isHidden(it) }) return false
+        val updated = if (known.isEmpty()) {
+            listOf(Nbt.CompoundTag(linkedMapOf("name" to Nbt.StringTag(server.name), "ip" to Nbt.StringTag(server.address)))) + servers
+        } else {
+            servers.map { if (it === known.first()) Nbt.CompoundTag(it.entries + ("hidden" to Nbt.ByteTag(0))) else it }
+        }
+        write(file, Nbt.CompoundTag(root.entries + ("servers" to Nbt.ListTag(10, updated))))
+        return true
+    }
+
     private fun parse(file: Path): Nbt.CompoundTag? {
         if (!file.isRegularFile()) return null
         val bytes = file.readBytes()

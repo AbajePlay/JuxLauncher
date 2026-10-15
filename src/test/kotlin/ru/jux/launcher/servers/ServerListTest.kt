@@ -196,6 +196,40 @@ class ServerListTest {
     }
 
     @Test
+    fun `a server from a link goes on top of the player's list once`(@TempDir dir: Path) {
+        save(dir, server("Мой", "play.example.org"))
+        val joined = ServerEntry("Test", "MC.Example.org:25565")
+
+        assertTrue(ServerList.add(dir, joined))
+        assertEquals(listOf("MC.Example.org:25565", "play.example.org"), servers(dir).map { it.text("ip") })
+        assertEquals("Test", servers(dir)[0].text("name"))
+        assertFalse(ServerList.add(dir, ServerEntry("Again", "mc.example.org")))
+        assertEquals(2, servers(dir).size)
+    }
+
+    @Test
+    fun `a link starts the list when the game has none and leaves a broken one alone`(@TempDir dir: Path) {
+        assertTrue(ServerList.add(dir, ServerEntry("Test", "mc.example.org")))
+        assertEquals(listOf("mc.example.org"), servers(dir).map { it.text("ip") })
+
+        val broken = byteArrayOf(1, 2, 3)
+        dir.resolve(ServerList.FILE_NAME).writeBytes(broken)
+        assertFalse(ServerList.add(dir, ServerEntry("Test", "other.example.org")))
+        assertArrayEquals(broken, dir.resolve(ServerList.FILE_NAME).readBytes())
+    }
+
+    @Test
+    fun `a server hidden by quick play is shown in place when its link is opened`(@TempDir dir: Path) {
+        save(dir, server("Мой", "play.example.org"), server("Minecraft Server", "mc.example.org", "hidden" to Nbt.ByteTag(1)))
+
+        assertTrue(ServerList.add(dir, ServerEntry("Test", "mc.example.org")))
+        val list = servers(dir)
+        assertEquals(listOf("play.example.org", "mc.example.org"), list.map { it.text("ip") })
+        assertEquals(Nbt.ByteTag(0), list[1]["hidden"])
+        assertEquals("Minecraft Server", list[1].text("name"))
+    }
+
+    @Test
     fun `every tag type survives a round trip`() {
         val root = Nbt.CompoundTag(
             linkedMapOf(

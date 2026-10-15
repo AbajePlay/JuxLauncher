@@ -135,7 +135,7 @@ private class ContentModel(
     private val loader: LoaderKind,
     private val gameVersion: String,
     private val scope: CoroutineScope,
-    private val enableBoost: () -> Boolean,
+    private val installer: suspend (ContentKind, Modrinth.SearchHit, Set<String>, (DownloadProgress) -> Unit) -> String,
     private val onChanged: () -> Unit,
 ) {
     val searches = ContentKind.entries.associateWith { kind ->
@@ -166,25 +166,7 @@ private class ContentModel(
         }
 
     fun install(kind: ContentKind, hit: Modrinth.SearchHit) = work(hit.projectId) {
-        message = when (kind) {
-            ContentKind.SHADER -> {
-                val titles = ModManager.installShader(dir, loader, gameVersion, hit.projectId, hit.title, installedProjects) { progress = it }
-                val boosted = loader == LoaderKind.VANILLA && enableBoost()
-                listOfNotNull(
-                    "${hit.title} установлен и включён",
-                    "вместе с ${titles.dropLast(1).joinToString()}".takeIf { titles.size > 1 },
-                    "шейдеры работают через FPS-буст, он включён".takeIf { boosted },
-                ).joinToString(", ")
-            }
-            ContentKind.RESOURCE_PACK -> {
-                ModManager.installResourcePack(dir, gameVersion, hit.projectId, hit.title) { progress = it }
-                "${hit.title} установлен и включён"
-            }
-            ContentKind.MOD -> {
-                val titles = ModManager.install(dir, loader, gameVersion, hit.projectId, hit.title, installedProjects) { progress = it }
-                if (titles.size <= 1) "${hit.title} установлен" else "Установлено: ${titles.joinToString()}"
-            }
-        }
+        message = installer(kind, hit, installedProjects) { progress = it }
     }
 
     fun update(mod: InstalledItem) = work(mod.fileName) {
@@ -276,7 +258,9 @@ fun CatalogScreen(state: LauncherState) {
                 loader = entry.loader,
                 gameVersion = entry.id,
                 scope = scope,
-                enableBoost = { state.enableBoost(entry) },
+                installer = { kind, hit, present, onProgress ->
+                    state.installInto(entry, kind, hit.projectId, hit.title, present, onProgress)
+                },
                 onChanged = { state.modsChanged(entry) },
             )
         }

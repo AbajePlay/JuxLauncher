@@ -27,11 +27,10 @@ data class OnlineCount(val online: Int, val playing: Int)
 
 object OnlineCounter {
 
-    private const val DEFAULT_URL = "https://juxmc.ru/api/v1/launcher/online/"
     private const val INTERVAL_MILLIS = 60_000L
     private const val STALE_MILLIS = 5 * 60_000L
 
-    private val url: String = System.getenv("JUX_ONLINE_URL")?.takeIf { it.startsWith("http") } ?: DEFAULT_URL
+    private val url: String = System.getenv("JUX_ONLINE_URL")?.takeIf { it.startsWith("http") } ?: JuxSite.api("launcher/online/")
 
     private val _count = MutableStateFlow<OnlineCount?>(null)
     val count: StateFlow<OnlineCount?> = _count.asStateFlow()

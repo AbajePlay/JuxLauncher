@@ -54,9 +54,12 @@ object Modrinth {
     @Serializable
     data class Project(
         val id: String,
+        val slug: String = "",
         val title: String = "",
         val description: String = "",
         @SerialName("icon_url") val iconUrl: String? = null,
+        @SerialName("game_versions") val gameVersions: List<String> = emptyList(),
+        val loaders: List<String> = emptyList(),
     )
 
     @Serializable
@@ -79,17 +82,27 @@ object Modrinth {
         @SerialName("total_hits") val totalHits: Int = 0,
     )
 
-    fun versions(project: String, loaders: List<String> = emptyList(), gameVersion: String? = null): List<Version> {
+    fun versions(project: String, loaders: List<String> = emptyList(), gameVersion: String? = null): List<Version> =
+        versionsFor(project, loaders, listOfNotNull(gameVersion))
+
+    fun versionsFor(project: String, loaders: List<String>, gameVersions: Collection<String>): List<Version> {
         val url = "$API/project/$project/version".toHttpUrl().newBuilder()
-            .apply { if (loaders.isNotEmpty()) addQueryParameter("loaders", loaders.joinToString(",", "[", "]") { "\"$it\"" }) }
-            .apply { if (gameVersion != null) addQueryParameter("game_versions", "[\"$gameVersion\"]") }
+            .apply { if (loaders.isNotEmpty()) addQueryParameter("loaders", quoted(loaders)) }
+            .apply { if (gameVersions.isNotEmpty()) addQueryParameter("game_versions", quoted(gameVersions)) }
             .build()
             .toString()
         return Json.decodeFromString<List<Version>>(Http.getString(url))
             .sortedByDescending { it.datePublished }
     }
 
+    private fun quoted(values: Collection<String>): String = values.joinToString(",", "[", "]") { "\"$it\"" }
+
     fun version(id: String): Version = Json.decodeFromString<Version>(Http.getString("$API/version/$id"))
+
+    fun project(idOrSlug: String): Project {
+        val url = "$API/project".toHttpUrl().newBuilder().addPathSegment(idOrSlug).build().toString()
+        return Json.decodeFromString<Project>(Http.getString(url))
+    }
 
     fun search(
         projectType: String,
@@ -145,7 +158,7 @@ object Modrinth {
     fun projects(ids: Collection<String>): List<Project> {
         if (ids.isEmpty()) return emptyList()
         val url = "$API/projects".toHttpUrl().newBuilder()
-            .addQueryParameter("ids", ids.joinToString(",", "[", "]") { "\"$it\"" })
+            .addQueryParameter("ids", quoted(ids))
             .build()
             .toString()
         return Json.decodeFromString<List<Project>>(Http.getString(url))

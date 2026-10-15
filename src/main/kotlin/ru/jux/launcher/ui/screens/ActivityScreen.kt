@@ -58,10 +58,10 @@ import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.delay
 import ru.jux.launcher.activity.ActivityStats
 import ru.jux.launcher.activity.PlaySession
-import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.components.JuxIcons
 import ru.jux.launcher.ui.components.Tag
+import ru.jux.launcher.ui.components.loaderColor
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 import ru.jux.launcher.ui.theme.PillShape
@@ -347,7 +347,7 @@ private fun VersionsCard(stats: ActivityStats?, modifier: Modifier) {
                                     .fillMaxWidth((version.millis.toFloat() / max).coerceIn(0.04f, 1f))
                                     .fillMaxHeight()
                                     .clip(PillShape)
-                                    .background(loaderTone(version.loader)),
+                                    .background(loaderColor(version.loader)),
                             )
                         }
                     }
@@ -445,7 +445,7 @@ private fun SessionRow(session: PlaySession, today: LocalDate, height: Dp) {
                 maxLines = 1,
             )
         }
-        Tag(session.label, loaderTone(session.loader))
+        Tag(session.label, loaderColor(session.loader))
         Text(
             formatPlayTime(session.millis),
             style = MaterialTheme.typography.bodyMedium,
@@ -474,14 +474,6 @@ private fun levelColor(level: Int): Color = when (level) {
     2 -> JuxColors.Accent.copy(alpha = 0.48f).compositeOver(JuxColors.Surface)
     3 -> JuxColors.Accent.copy(alpha = 0.74f).compositeOver(JuxColors.Surface)
     else -> JuxColors.Accent
-}
-
-private fun loaderTone(kind: LoaderKind): Color = when (kind) {
-    LoaderKind.FABRIC -> JuxColors.LoaderFabric
-    LoaderKind.QUILT -> JuxColors.LoaderQuilt
-    LoaderKind.FORGE -> JuxColors.LoaderForge
-    LoaderKind.NEOFORGE -> JuxColors.LoaderNeoForge
-    LoaderKind.VANILLA -> JuxColors.LoaderVanilla
 }
 
 internal fun formatPlayTime(millis: Long): String {

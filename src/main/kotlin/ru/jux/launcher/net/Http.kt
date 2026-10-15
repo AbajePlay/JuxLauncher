@@ -58,8 +58,10 @@ object Http {
 
     fun getString(url: String): String = execute(request(url))
 
-    fun postJson(url: String, json: String): String =
-        execute(Request.Builder().url(url).post(json.toRequestBody(JSON)).build())
+    fun postJson(url: String, json: String, timeoutSeconds: Long? = null): String = execute(
+        Request.Builder().url(url).post(json.toRequestBody(JSON)).build(),
+        timeoutSeconds?.let { metadataClient.newBuilder().callTimeout(it, TimeUnit.SECONDS).build() } ?: metadataClient,
+    )
 
     fun postForm(url: String, fields: Map<String, String>): String {
         val body = FormBody.Builder().apply { fields.forEach { (name, value) -> add(name, value) } }.build()
@@ -74,7 +76,7 @@ object Http {
 
     private fun execute(request: Request, via: OkHttpClient = metadataClient): String {
         via.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code} for ${request.url}")
+            if (!response.isSuccessful) throw HttpStatusException(response.code, request.url.toString())
             return response.body?.string() ?: throw IOException("empty body for ${request.url}")
         }
     }
@@ -87,3 +89,5 @@ object Http {
         }.onFailure { Log.debug("http shutdown: ${it.message}") }
     }
 }
+
+class HttpStatusException(val code: Int, url: String) : IOException("HTTP $code for $url")

@@ -54,6 +54,8 @@ import ru.jux.launcher.instance.CarrySource
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.launch.GameLauncher
+import ru.jux.launcher.link.LaunchLink
+import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.logs.CrashHints
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.meta.LoaderKind
@@ -61,10 +63,13 @@ import ru.jux.launcher.meta.LoaderSupport
 import ru.jux.launcher.meta.ManifestVersion
 import ru.jux.launcher.meta.VersionKind
 import ru.jux.launcher.meta.VersionManifest
+import ru.jux.launcher.mods.ContentKind
 import ru.jux.launcher.mods.ModCompat
 import ru.jux.launcher.mods.ModManager
+import ru.jux.launcher.mods.Modrinth
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.online.OnlineCounter
+import ru.jux.launcher.online.ServerJoins
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.packs.Modpacks
@@ -110,6 +115,19 @@ sealed interface Modal {
         val firstLaunch: Boolean,
         val targetHasOptions: Boolean,
     ) : Modal
+    data class Join(val link: LaunchLink.Join, val choices: List<VersionEntry>, val note: String? = null) : Modal
+    data class Install(val link: LaunchLink.Install, val plan: InstallPlan? = null) : Modal
+}
+
+sealed interface InstallPlan {
+    data class Content(
+        val project: Modrinth.Project,
+        val kind: ContentKind,
+        val targets: List<VersionEntry>,
+        val unfit: Int,
+    ) : InstallPlan
+    data class Pack(val project: Modrinth.Project, val installed: Modpack?) : InstallPlan
+    data class Failed(val message: String) : InstallPlan
 }
 
 sealed interface PingState {
@@ -122,6 +140,7 @@ class LauncherState(
     private val scope: CoroutineScope,
     preloaded: PreloadResult? = null,
     playRequest: PlayRequest? = null,
+    link: LaunchLink? = null,
 ) {
 
     var screen by mutableStateOf(Screen.HOME)
@@ -202,6 +221,9 @@ class LauncherState(
     var serverStatus by mutableStateOf<Map<String, PingState>>(emptyMap())
         private set
 
+    var gameRunning by mutableStateOf(false)
+        private set
+
     val listState = LazyListState()
 
     var onGameStarted: (Process) -> Unit = {}
@@ -235,6 +257,7 @@ class LauncherState(
                 pendingPlay = true
             }
         }
+        link?.let(::openLink)
     }
 
     private fun adopt(preloaded: PreloadResult) {
@@ -489,6 +512,7 @@ class LauncherState(
     }
 
     fun gameExited(exitCode: Int) {
+        gameRunning = false
         if (exitCode == 0) return
         val (entry, logFile) = lastLaunch ?: return
         Log.warn("game exited with code $exitCode")
@@ -594,7 +618,7 @@ class LauncherState(
 
     fun consumePendingPlay(): Boolean = pendingPlay.also { pendingPlay = false }
 
-    fun play(serverAddress: String? = null, skipModCheck: Boolean = false) {
+    fun play(server: ServerEntry? = null, skipModCheck: Boolean = false) {
         if (busy) return
         val entry = currentEntry() ?: run {
             fail("Выберите версию")
@@ -605,10 +629,10 @@ class LauncherState(
             screen = Screen.ACCOUNTS
             return
         }
-        startJob(entry, "launch") { launch(entry, account, serverAddress, skipModCheck) }
+        startJob(entry, "launch") { launch(entry, account, server, skipModCheck) }
     }
 
-    private suspend fun launch(entry: VersionEntry, account: Account, serverAddress: String?, skipModCheck: Boolean) {
+    private suspend fun launch(entry: VersionEntry, account: Account, server: ServerEntry?, skipModCheck: Boolean) {
         val gameDir = gameDirOf(entry)
         if (!offerCarryOver(entry, gameDir)) return
         if (!skipModCheck && entry.loader.isModded) {
@@ -625,12 +649,13 @@ class LauncherState(
                 return
             }
         }
+        server?.let { addToServerList(gameDir, it) }
         val notices = ArrayList<String>()
         val result = GameLauncher.launch(
             versionId = entry.id,
             account = account,
             loader = entry.loader,
-            serverAddress = serverAddress,
+            serverAddress = server?.address,
             gameDir = gameDir,
             loaderVersion = entry.pack?.loaderVersion,
             onStage = ::stageChanged,
@@ -645,15 +670,23 @@ class LauncherState(
         val playing = Presence.Playing(
             versionId = entry.id,
             loaderLabel = entry.loader.takeIf { it.isModded }?.label,
-            server = serverAddress?.let(GameEvents::display),
+            server = server?.address?.let(GameEvents::display),
             mods = if (entry.loader.isModded) ModManager.count(gameDir) else 0,
             startedAt = System.currentTimeMillis(),
             pack = entry.pack?.title,
         )
         DiscordPresence.show(playing)
         OnlineCounter.setPlaying(true)
+        server?.let { ServerJoins.report(it.address) }
         watchGame(result.process, result.logFile, result.gameDir, playing)
+        gameRunning = true
         onGameStarted(result.process)
+    }
+
+    private suspend fun addToServerList(gameDir: Path, server: ServerEntry) = withContext(Dispatchers.IO) {
+        runCatching { ServerList.add(gameDir, server) }
+            .onSuccess { added -> if (added) Log.info("added ${server.address} to the multiplayer list of $gameDir") }
+            .onFailure { Log.warn("could not add ${server.address} to $gameDir: ${it.message}") }
     }
 
     private suspend fun offerCarryOver(entry: VersionEntry, gameDir: Path): Boolean {
@@ -748,12 +781,15 @@ class LauncherState(
         packUpdates[pack.id]?.let { installPack(it) }
     }
 
-    fun installPack(source: PackSource) {
+    fun installPack(source: PackSource) =
+        installPack(source.projectId, packs.firstOrNull { it.id == source.id }?.let(::entryFor)) { source }
+
+    private fun installPack(projectId: String, entry: VersionEntry?, source: suspend () -> PackSource) {
         if (busy) return
-        installingPack = source.projectId
-        startJob(packs.firstOrNull { it.id == source.id }?.let(::entryFor), "pack") {
+        installingPack = projectId
+        startJob(entry, "pack") {
             try {
-                val pack = Modpacks.install(source, onStage = ::stageChanged, onProgress = { progress = it })
+                val pack = Modpacks.install(source(), onStage = ::stageChanged, onProgress = { progress = it })
                 packs = withContext(Dispatchers.IO) { Modpacks.list() }
                 packUpdates = packUpdates - pack.id
                 val entry = entryFor(pack)
@@ -819,7 +855,7 @@ class LauncherState(
     private suspend fun serverIcon(address: String): String? =
         ServerPing.ping(address)?.favicon?.let { DiscordPresence.serverIcon(address) }
 
-    fun playFromShortcut(request: PlayRequest, gameRunning: Boolean) {
+    fun playFromShortcut(request: PlayRequest) {
         if (busy) {
             fail("Сначала дождитесь окончания загрузки ${busyEntry?.label.orEmpty()}".trimEnd())
             return
@@ -832,7 +868,101 @@ class LauncherState(
     fun playOnServer(server: ServerEntry) {
         if (busy) return
         if (selectedVersionId == null) server.entryKey?.let(::entryByKey)?.let(::selectEntry)
-        play(serverAddress = server.address)
+        play(server)
+    }
+
+    fun openLink(link: LaunchLink) {
+        if (carryAnswer != null) {
+            inform("Сначала выбери, что перенести, а потом открой ссылку ещё раз", level = NoticeLevel.INFO)
+            return
+        }
+        screen = Screen.HOME
+        when (link) {
+            LaunchLink.Open -> Unit
+            is LaunchLink.Join -> modal = joinModal(link)
+            is LaunchLink.Install -> showInstall(link)
+        }
+    }
+
+    private fun showInstall(link: LaunchLink.Install) {
+        val shown = Modal.Install(link)
+        modal = shown
+        if (link.content == LinkContent.DATAPACK) return
+        scope.launch {
+            val plan = try {
+                installPlan(link)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.warn("link to ${link.project} unresolved: ${e.message}")
+                InstallPlan.Failed("Modrinth не ответил. Проверь интернет и открой ссылку ещё раз")
+            }
+            if (modal === shown) modal = shown.copy(plan = plan)
+        }
+    }
+
+    fun joinServer(link: LaunchLink.Join, entry: VersionEntry) {
+        if (busy || gameRunning) return
+        modal = null
+        selectEntry(entry)
+        play(ServerEntry(link.title, link.address))
+    }
+
+    fun installFromLink(entry: VersionEntry, project: Modrinth.Project, kind: ContentKind) {
+        if (busy) return
+        modal = null
+        selectEntry(entry)
+        startJob(entry, "content") {
+            stageChanged("Ставлю ${project.title}")
+            val present = listOf(ContentKind.MOD, kind).distinct()
+                .flatMap { ModManager.scan(gameDirOf(entry), entry.loader, entry.id, it) }
+                .mapNotNull { it.projectId }
+                .toSet()
+            if (project.id in present) {
+                inform("${project.title} уже стоит в ${entry.label}", entry, level = NoticeLevel.INFO)
+                return@startJob
+            }
+            val message = installInto(entry, kind, project.id, project.title, present) { progress = it }
+            instanceChanged(entry)
+            inform(message, entry, "Установлено в ${entry.label}")
+        }
+    }
+
+    fun installPackFromLink(project: Modrinth.Project) {
+        modal = null
+        installPack(project.id, null) {
+            Modpacks.source(project.id, project.slug.ifBlank { project.id }, project.title, project.iconUrl)
+        }
+    }
+
+    suspend fun installInto(
+        entry: VersionEntry,
+        kind: ContentKind,
+        projectId: String,
+        title: String,
+        present: Set<String>,
+        onProgress: (DownloadProgress) -> Unit,
+    ): String {
+        val dir = gameDirOf(entry)
+        return when (kind) {
+            ContentKind.SHADER -> {
+                val titles = ModManager.installShader(dir, entry.loader, entry.id, projectId, title, present, onProgress)
+                val boosted = entry.loader == LoaderKind.VANILLA && enableBoost(entry)
+                listOfNotNull(
+                    "$title установлен и включён",
+                    "вместе с ${titles.dropLast(1).joinToString()}".takeIf { titles.size > 1 },
+                    "шейдеры работают через FPS-буст, он включён".takeIf { boosted },
+                ).joinToString(", ")
+            }
+            ContentKind.RESOURCE_PACK -> {
+                ModManager.installResourcePack(dir, entry.id, projectId, title, onProgress)
+                "$title установлен и включён"
+            }
+            ContentKind.MOD -> {
+                val titles = ModManager.install(dir, entry.loader, entry.id, projectId, title, present, onProgress)
+                if (titles.size <= 1) "$title установлен" else "Установлено: ${titles.joinToString()}"
+            }
+        }
     }
 
     fun reinstall(entry: VersionEntry) {
@@ -1088,6 +1218,7 @@ class LauncherState(
             "fix mods" to "Моды не исправлены",
             "pack" to "Сборка не установилась",
             "carry" to "Перенос не удался",
+            "content" to "Не установилось",
         )
         const val NO_VERSIONS = "Не удалось получить список версий. Проверьте интернет и перезапустите лаунчер."
     }

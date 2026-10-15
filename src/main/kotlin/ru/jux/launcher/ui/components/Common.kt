@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 import ru.jux.launcher.ui.theme.PillShape
@@ -43,6 +44,14 @@ fun Panel(
             .background(JuxColors.Surface, shape)
             .padding(22.dp),
     ) { content() }
+}
+
+fun loaderColor(kind: LoaderKind): Color = when (kind) {
+    LoaderKind.FABRIC -> JuxColors.LoaderFabric
+    LoaderKind.QUILT -> JuxColors.LoaderQuilt
+    LoaderKind.FORGE -> JuxColors.LoaderForge
+    LoaderKind.NEOFORGE -> JuxColors.LoaderNeoForge
+    LoaderKind.VANILLA -> JuxColors.LoaderVanilla
 }
 
 @Composable

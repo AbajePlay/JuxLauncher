@@ -100,6 +100,7 @@ import ru.jux.launcher.ui.components.Panel
 import ru.jux.launcher.ui.components.ReportOpen
 import ru.jux.launcher.ui.components.SearchField
 import ru.jux.launcher.ui.components.Tag
+import ru.jux.launcher.ui.components.loaderColor
 import ru.jux.launcher.ui.components.WithTooltip
 import ru.jux.launcher.ui.components.formatBytes
 import ru.jux.launcher.ui.components.formatReleaseDate
@@ -604,14 +605,6 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
             )
         }
     }
-}
-
-private fun loaderColor(kind: LoaderKind) = when (kind) {
-    LoaderKind.FABRIC -> JuxColors.LoaderFabric
-    LoaderKind.QUILT -> JuxColors.LoaderQuilt
-    LoaderKind.FORGE -> JuxColors.LoaderForge
-    LoaderKind.NEOFORGE -> JuxColors.LoaderNeoForge
-    LoaderKind.VANILLA -> JuxColors.LoaderVanilla
 }
 
 @Composable

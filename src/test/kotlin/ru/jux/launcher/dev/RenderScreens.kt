@@ -22,6 +22,8 @@ import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.instance.CarryPack
 import ru.jux.launcher.instance.CarrySource
 import ru.jux.launcher.instance.CarryWorld
+import ru.jux.launcher.link.LaunchLink
+import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.packs.Modpack
@@ -29,10 +31,14 @@ import ru.jux.launcher.online.OnlineCount
 import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.ui.App
 import ru.jux.launcher.ui.CatalogTab
+import ru.jux.launcher.ui.InstallPlan
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
+import ru.jux.launcher.ui.ModIcons
 import ru.jux.launcher.ui.Screen
 import ru.jux.launcher.ui.SplashContent
+import ru.jux.launcher.ui.installPlan
+import ru.jux.launcher.ui.joinModal
 import ru.jux.launcher.ui.components.JuxDropdownMenu
 import ru.jux.launcher.ui.screens.EntryMenuItems
 import ru.jux.launcher.ui.theme.JuxTheme
@@ -129,6 +135,32 @@ fun main(args: Array<String>) {
         state.modal = modal
         render(name, 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     }
+    state.modal = null
+
+    val links = listOf(
+        "dialog-join" to LaunchLink.Join("mc.example.org", "1.21.4", "Test"),
+        "dialog-join-unknown" to LaunchLink.Join("play.example.org:25570", "99.9", null),
+        "dialog-install-mod" to LaunchLink.Install("sodium", LinkContent.MOD, "1.21.4", "fabric", "Sodium"),
+        "dialog-install-shader" to LaunchLink.Install("complementary-reimagined", LinkContent.SHADER, null, "iris", null),
+        "dialog-install-resourcepack" to LaunchLink.Install("fresh-animations", LinkContent.RESOURCE_PACK, null, null, null),
+        "dialog-install-pack" to LaunchLink.Install("fabulously-optimized", LinkContent.MODPACK, null, null, null),
+        "dialog-install-datapack" to LaunchLink.Install("terralith", LinkContent.DATAPACK, null, null, "Terralith"),
+        "dialog-install-missing" to LaunchLink.Install("no-such-project-jux", LinkContent.MOD, "1.21.4", null, null),
+    )
+    for ((name, link) in links) {
+        state.modal = when (link) {
+            is LaunchLink.Join -> state.joinModal(link)
+            is LaunchLink.Install -> Modal.Install(link, if (link.content == LinkContent.DATAPACK) null else runBlocking { state.installPlan(link) })
+            LaunchLink.Open -> null
+        }
+        val plan = (state.modal as? Modal.Install)?.plan
+        listOfNotNull((plan as? InstallPlan.Content)?.project?.iconUrl, (plan as? InstallPlan.Pack)?.project?.iconUrl)
+            .forEach { runBlocking { ModIcons.load(it) } }
+        println("$name: ${state.modal}")
+        render(name, 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
+    }
+    state.modal = Modal.Install(links.first { it.first == "dialog-install-mod" }.second as LaunchLink.Install)
+    render("dialog-install-loading", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     state.modal = null
 
     val menuEntry = state.entryFor("26.3", LoaderKind.FABRIC)

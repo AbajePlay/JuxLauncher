@@ -72,6 +72,8 @@ fun ModalHost(state: LauncherState) {
         is Modal.Delete -> DeleteDialog(state, modal.entry)
         is Modal.Logs -> LogDialog(state, modal)
         is Modal.Carry -> CarryDialog(state, modal)
+        is Modal.Join -> JoinDialog(state, modal)
+        is Modal.Install -> InstallDialog(state, modal)
     }
 }
 

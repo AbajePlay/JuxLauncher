@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Settings
+import ru.jux.launcher.link.LaunchLink
+import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderSupport
 import ru.jux.launcher.meta.ManifestVersion
@@ -145,6 +147,48 @@ class LauncherStateTest {
             if (state.onlyInstalled) state.toggleOnlyInstalled()
         }
         assertEquals(listOf("26.3", "26.2"), state.groups().map { it.key })
+    }
+
+    @Test
+    fun `a join link offers the player's builds of that version and a fresh one`() {
+        val state = LauncherState(scope, preload(setOf("26.3", "fabric-loader-0.16.14-26.3")))
+        state.selectEntry(state.entryFor("26.3", LoaderKind.FABRIC))
+
+        val modal = state.joinModal(LaunchLink.Join("mc.example.org", "26.3", "Test"))
+        assertEquals(listOf("26.3#FABRIC", "26.3#VANILLA"), modal.choices.map { it.key })
+        assertNull(modal.note)
+
+        val older = state.joinModal(LaunchLink.Join("mc.example.org", "26.2", null))
+        assertEquals(listOf("26.2#VANILLA"), older.choices.map { it.key })
+        assertFalse(state.isEntryInstalled(older.choices.single()))
+    }
+
+    @Test
+    fun `an unknown version falls back to the latest release, no version offers every build`() {
+        val state = LauncherState(scope, preload(setOf("26.3", "fabric-loader-0.16.14-26.3"), listOf(pack)))
+        state.selectEntry(state.entryFor("26.3", LoaderKind.VANILLA))
+
+        val future = state.joinModal(LaunchLink.Join("mc.example.org", "99.1", null))
+        assertEquals(listOf("26.3#VANILLA", "26.3#FABRIC"), future.choices.map { it.key })
+        assertEquals("Версии 99.1 нет в списке Mojang — предлагаю последнюю, 26.3", future.note)
+
+        val any = state.joinModal(LaunchLink.Join("mc.example.org", null, null))
+        assertEquals(listOf("26.3#VANILLA", "pack:fabulously-optimized", "26.3#FABRIC"), any.choices.map { it.key })
+    }
+
+    @Test
+    fun `opening a link shows its dialog on the home screen`() {
+        val state = LauncherState(scope, preload(setOf("26.3")), link = LaunchLink.Join("mc.example.org", "26.3", null))
+        assertTrue(state.modal is Modal.Join)
+
+        state.screen = Screen.SETTINGS
+        state.modal = null
+        state.openLink(LaunchLink.Open)
+        assertEquals(Screen.HOME, state.screen)
+        assertNull(state.modal)
+
+        state.openLink(LaunchLink.Install("terralith", LinkContent.DATAPACK, null, null, "Terralith"))
+        assertEquals(Modal.Install(LaunchLink.Install("terralith", LinkContent.DATAPACK, null, null, "Terralith")), state.modal)
     }
 
     @Test

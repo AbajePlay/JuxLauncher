@@ -27,9 +27,11 @@ import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.SingleInstance
+import ru.jux.launcher.core.UrlProtocol
 import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.discord.Presence
+import ru.jux.launcher.link.LaunchLink
 import ru.jux.launcher.net.Http
 import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.ui.App
@@ -41,6 +43,7 @@ import ru.jux.launcher.ui.theme.JuxTheme
 fun main(args: Array<String>) {
     val instance = bootstrap(args)
     val playRequest = PlayArguments.parse(args)?.also { Log.info("asked to start ${it.versionId} (${it.loader})") }
+    val link = LaunchLink.find(args.toList())?.also { Log.info("opened by a link: $it") }
 
     application {
         LaunchedEffect(Unit) { awaitCancellation() }
@@ -80,7 +83,7 @@ fun main(args: Array<String>) {
         } else {
             val scope = rememberCoroutineScope()
             val state = remember {
-                LauncherState(scope, ready, playRequest).also { it.onQuit = ::shutdownAndExit }
+                LauncherState(scope, ready, playRequest, link).also { it.onQuit = ::shutdownAndExit }
             }
             val windowState = rememberWindowState(
                 width = 1040.dp,
@@ -99,7 +102,8 @@ fun main(args: Array<String>) {
                     windowState.isMinimized = false
                     raised++
                     PlayArguments.parse(handed.toTypedArray())
-                        ?.let { state.playFromShortcut(it, gameRunning = gameProcess != null) }
+                        ?.let(state::playFromShortcut)
+                    LaunchLink.find(handed)?.let(state::openLink)
                 }
             }
 
@@ -107,6 +111,7 @@ fun main(args: Array<String>) {
                 withContext(Dispatchers.IO) { runCatching { ClassArchives.removeStale() } }
             }
             LaunchedEffect(Unit) { state.checkForUpdates() }
+            LaunchedEffect(Unit) { withContext(Dispatchers.IO) { UrlProtocol.register() } }
             LaunchedEffect(Unit) { state.refreshActivity() }
             LaunchedEffect(Unit) { OnlineCounter.start() }
             LaunchedEffect(Unit) {
