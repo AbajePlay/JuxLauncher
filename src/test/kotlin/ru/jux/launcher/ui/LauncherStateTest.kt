@@ -150,7 +150,7 @@ class LauncherStateTest {
     }
 
     @Test
-    fun `a join link offers the player's builds of that version and a fresh one`() {
+    fun `a join link offers builds of that version first, a fresh one, then every other build`() {
         val state = LauncherState(scope, preload(setOf("26.3", "fabric-loader-0.16.14-26.3")))
         state.selectEntry(state.entryFor("26.3", LoaderKind.FABRIC))
 
@@ -159,8 +159,20 @@ class LauncherStateTest {
         assertNull(modal.note)
 
         val older = state.joinModal(LaunchLink.Join("mc.example.org", "26.2", null))
-        assertEquals(listOf("26.2#VANILLA"), older.choices.map { it.key })
-        assertFalse(state.isEntryInstalled(older.choices.single()))
+        assertEquals(listOf("26.2#VANILLA", "26.3#FABRIC", "26.3#VANILLA"), older.choices.map { it.key })
+        assertFalse(state.isEntryInstalled(older.choices.first()))
+    }
+
+    @Test
+    fun `builds inside the server's version range come first`() {
+        val state = LauncherState(scope, preload(setOf("26.3", "fabric-loader-0.16.14-26.3")))
+        state.selectEntry(state.entryFor("26.2", LoaderKind.VANILLA))
+
+        val exact = state.joinModal(LaunchLink.Join("mc.example.org", "26.3", null))
+        assertEquals(listOf("26.3#VANILLA", "26.3#FABRIC", "26.2#VANILLA"), exact.choices.map { it.key })
+
+        val ranged = state.joinModal(LaunchLink.Join("mc.example.org", "26.3", null, minVersion = "26.2"))
+        assertEquals(listOf("26.2#VANILLA", "26.3#VANILLA", "26.3#FABRIC"), ranged.choices.map { it.key })
     }
 
     @Test
@@ -169,7 +181,7 @@ class LauncherStateTest {
         state.selectEntry(state.entryFor("26.3", LoaderKind.VANILLA))
 
         val future = state.joinModal(LaunchLink.Join("mc.example.org", "99.1", null))
-        assertEquals(listOf("26.3#VANILLA", "26.3#FABRIC"), future.choices.map { it.key })
+        assertEquals(listOf("26.3#VANILLA", "26.3#FABRIC", "pack:fabulously-optimized"), future.choices.map { it.key })
         assertEquals("Версии 99.1 нет в списке Mojang — предлагаю последнюю, 26.3", future.note)
 
         val any = state.joinModal(LaunchLink.Join("mc.example.org", null, null))

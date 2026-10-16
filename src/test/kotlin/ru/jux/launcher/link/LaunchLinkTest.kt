@@ -23,6 +23,28 @@ class LaunchLinkTest {
     }
 
     @Test
+    fun `a join link may carry the lowest version the server lets in`() {
+        val link = parse("juxlauncher://join?address=mc.example.org&version=26.3&min=1.8&name=Test") as LaunchLink.Join
+        assertEquals(LaunchLink.Join("mc.example.org", "26.3", "Test", "1.8"), link)
+        assertEquals("1.8–26.3", link.range)
+        assertTrue(link.accepts("1.8.9"))
+        assertTrue(link.accepts("1.21.11"))
+        assertTrue(link.accepts("26.3"))
+        assertFalse(link.accepts("1.7.10"))
+        assertFalse(link.accepts("26.4"))
+        assertFalse(link.accepts("25w14a"))
+
+        // Минимум не выше верхней версии и не без неё
+        listOf("min=26.3&version=26.3", "min=26.4&version=26.3", "min=1.8", "min=x&version=26.3").forEach { query ->
+            assertNull((parse("juxlauncher://join?address=a.org&$query") as LaunchLink.Join).minVersion, query)
+        }
+        val single = parse("juxlauncher://join?address=a.org&version=1.21") as LaunchLink.Join
+        assertEquals("1.21", single.range)
+        assertTrue(single.accepts("1.21"))
+        assertFalse(single.accepts("1.21.11"))
+    }
+
+    @Test
     fun `parameters come in any order, extra ones are ignored and names are decoded`() {
         assertEquals(
             LaunchLink.Join("mc.virtusmine.fun", "26.3", "Virtus Mine: выживание"),

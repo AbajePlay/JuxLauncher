@@ -66,7 +66,7 @@ internal fun JoinDialog(state: LauncherState, modal: Modal.Join) {
 
     JuxDialog(
         title = "Играть на ${link.title}",
-        subtitle = listOfNotNull(link.address.takeIf { link.name != null }, link.version?.let { "Minecraft $it" })
+        subtitle = listOfNotNull(link.address.takeIf { link.name != null }, link.range?.let { "Minecraft $it" })
             .joinToString(" · ")
             .ifEmpty { null },
         onDismiss = close,
@@ -92,6 +92,11 @@ internal fun JoinDialog(state: LauncherState, modal: Modal.Join) {
             state.gameRunning -> Hint("Игра уже запущена. Закрой её, и отсюда сразу зайдёшь на сервер", JuxColors.Warning)
             state.busy -> Hint(busyText(state), JuxColors.Warning)
             modal.note != null -> Hint(modal.note, JuxColors.Warning)
+            link.version != null && choice?.let { link.accepts(it.id) } == false -> Hint(
+                if (link.minVersion != null) "Сервер пускает с ${link.range}, а сборка на ${choice?.id} — может не пустить"
+                else "Сервер на ${link.version}, а сборка на ${choice?.id} — без ViaVersion на сервере не пустит",
+                JuxColors.Warning,
+            )
             else -> Hint("Игра сразу зайдёт на сервер, а адрес останется в списке серверов этой сборки")
         }
     }

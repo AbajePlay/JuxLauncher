@@ -18,9 +18,14 @@ internal fun LauncherState.joinModal(link: LaunchLink.Join): Modal.Join {
     val known = link.version?.takeIf { id -> versions.any { it.id == id } }
     val gameVersion = known ?: link.version?.let { latest }
     val targets = (listOfNotNull(currentEntry()) + catalogTargets()).distinctBy { it.key }
+    // Сначала сборки, с которыми сервер пускает (его версия или диапазон «1.8–26.3»), потом чистая игра
+    // его версии, потом все остальные установленные: сервер с ViaVersion пускает и с других, выбирать игроку
     val choices = when (gameVersion) {
         null -> targets.ifEmpty { listOfNotNull(latest?.let { entryFor(it, LoaderKind.VANILLA) }) }
-        else -> (targets.filter { it.id == gameVersion } + entryFor(gameVersion, LoaderKind.VANILLA)).distinctBy { it.key }
+        else -> {
+            val (fit, other) = targets.partition { it.id == gameVersion || link.accepts(it.id) }
+            (fit + entryFor(gameVersion, LoaderKind.VANILLA) + other).distinctBy { it.key }
+        }
     }
     val note = when {
         link.version == null || known != null -> null
