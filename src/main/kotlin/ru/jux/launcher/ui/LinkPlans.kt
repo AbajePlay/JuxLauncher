@@ -2,6 +2,7 @@ package ru.jux.launcher.ui
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.link.LaunchLink
 import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.meta.LoaderKind
@@ -29,8 +30,8 @@ internal fun LauncherState.joinModal(link: LaunchLink.Join): Modal.Join {
     }
     val note = when {
         link.version == null || known != null -> null
-        latest == null -> "Нет списка версий — проверь интернет"
-        else -> "Версии ${link.version} нет — предлагаю $latest"
+        latest == null -> tr("Нет списка версий — проверь интернет", "No version list — check your connection")
+        else -> tr("Версии ${link.version} нет — предлагаю $latest", "No version ${link.version} — suggesting $latest")
     }
     return Modal.Join(link, choices, note)
 }
@@ -40,10 +41,10 @@ internal suspend fun LauncherState.installPlan(link: LaunchLink.Install): Instal
         withContext(Dispatchers.IO) { Modrinth.project(link.project) }
     } catch (e: HttpStatusException) {
         if (e.code != 404) throw e
-        return InstallPlan.Failed("«${link.title}» нет на Modrinth")
+        return InstallPlan.Failed(tr("«${link.title}» нет на Modrinth", "“${link.title}” isn't on Modrinth"))
     }
     if (link.content == LinkContent.MODPACK) return InstallPlan.Pack(project, packs.firstOrNull { it.projectId == project.id })
-    val kind = link.content.content ?: return InstallPlan.Failed("Датапаки ставятся в мир, а не в сборку")
+    val kind = link.content.content ?: return InstallPlan.Failed(tr("Датапаки ставятся в мир, а не в сборку", "Data packs go into a world, not a pack"))
 
     val candidates = catalogTargets().filter { canHold(it, kind) }
     val fresh = listOfNotNull(
@@ -70,7 +71,10 @@ internal suspend fun LauncherState.installPlan(link: LaunchLink.Install): Instal
     if (targets.isEmpty()) {
         val wanted = listOfNotNull(link.version?.let { "Minecraft $it" }, link.loader?.replaceFirstChar { it.uppercase() })
         return InstallPlan.Failed(
-            "У ${project.title} нет версии под ${wanted.joinToString(" ").ifEmpty { "твои сборки" }}",
+            tr(
+                "У ${project.title} нет версии под ${wanted.joinToString(" ").ifEmpty { "твои сборки" }}",
+                "${project.title} has no version for ${wanted.joinToString(" ").ifEmpty { "your packs" }}",
+            ),
         )
     }
     return InstallPlan.Content(project, kind, targets, unfit = candidates.size - compatible.size)

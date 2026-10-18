@@ -1,6 +1,7 @@
 package ru.jux.launcher.logs
 
 import ru.jux.launcher.core.NoticeAction
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.meta.LoaderKind
 import java.io.RandomAccessFile
 import java.nio.file.Path
@@ -30,49 +31,49 @@ object CrashHints {
 
     fun diagnose(logFile: Path?, crashReport: Path?, loader: LoaderKind, versionId: String, exitCode: Int): Diagnosis {
         val text = listOfNotNull(logFile, crashReport).mapNotNull(::tail).joinToString("\n")
-        return reason(text, loader, versionId) ?: Diagnosis("Код выхода $exitCode — подробности в логах")
+        return reason(text, loader, versionId) ?: Diagnosis(tr("Код выхода $exitCode — подробности в логах", "Exit code $exitCode — see the logs"))
     }
 
     internal fun reason(log: String, loader: LoaderKind, versionId: String): Diagnosis? {
         MISSING_FABRIC.findAll(log).map { it.groupValues[1] }.firstOrNull { it !in PLATFORM }?.let { id ->
-            return Diagnosis("Не хватает мода «$id»", CrashFix(NoticeAction.INSTALL_MOD, id))
+            return Diagnosis(tr("Не хватает мода «$id»", "Missing mod \"$id\""), CrashFix(NoticeAction.INSTALL_MOD, id))
         }
         MISSING_FORGE.findAll(log).map { it.destructured }.firstOrNull { (id, _) -> id !in PLATFORM }?.let { (id, by) ->
-            return Diagnosis("Моду «$by» нужен «$id»", CrashFix(NoticeAction.INSTALL_MOD, id))
+            return Diagnosis(tr("Моду «$by» нужен «$id»", "Mod \"$by\" needs \"$id\""), CrashFix(NoticeAction.INSTALL_MOD, id))
         }
         MIXIN_MOD.find(log)?.let { mixin ->
             val id = mixin.groupValues[1]
-            return Diagnosis("Мод «$id» не подходит к этой версии игры", CrashFix(NoticeAction.DISABLE_MOD, id))
+            return Diagnosis(tr("Мод «$id» не подходит к этой версии игры", "Mod \"$id\" doesn't fit this game version"), CrashFix(NoticeAction.DISABLE_MOD, id))
         }
         NEWER_JAVA.find(log)?.let { java ->
             val major = (java.groupValues[1].toIntOrNull() ?: 0) - 44
-            return Diagnosis("Один из модов требует Java $major — проверь новые моды")
+            return Diagnosis(tr("Один из модов требует Java $major — проверь новые моды", "A mod needs Java $major — check your new mods"))
         }
         return when {
             "Unsupported class file major version" in log && loader.isModded -> Diagnosis(
-                "${loader.label} пока не поддерживает Minecraft $versionId" +
-                    if (loader == LoaderKind.QUILT) " — выбери Fabric" else "",
+                tr("${loader.label} пока не поддерживает Minecraft $versionId", "${loader.label} doesn't support Minecraft $versionId yet") +
+                    if (loader == LoaderKind.QUILT) tr(" — выбери Fabric", " — pick Fabric") else "",
             )
             "Could not reserve enough space" in log || "Invalid maximum heap size" in log -> Diagnosis(
-                "Java не смогла выделить столько памяти",
+                tr("Java не смогла выделить столько памяти", "Java could not allocate that much memory"),
                 CrashFix(NoticeAction.RESET_MEMORY),
             )
-            "OutOfMemoryError" in log -> Diagnosis("Игре не хватило памяти", CrashFix(NoticeAction.MORE_MEMORY))
+            "OutOfMemoryError" in log -> Diagnosis(tr("Игре не хватило памяти", "The game ran out of memory"), CrashFix(NoticeAction.MORE_MEMORY))
             CORRUPT.any { it in log } -> Diagnosis(
-                "Файлы игры повреждены",
+                tr("Файлы игры повреждены", "Game files are damaged"),
                 CrashFix(NoticeAction.VERIFY_FILES),
             )
             DRIVER.any { it in log } -> Diagnosis(
-                "Видеокарта не открыла окно игры — обнови драйвер",
+                tr("Видеокарта не открыла окно игры — обнови драйвер", "The graphics card could not open the game window — update the driver"),
             )
             DUPLICATES.any { it in log } -> Diagnosis(
-                "Один мод стоит дважды — удали копию",
+                tr("Один мод стоит дважды — удали копию", "A mod is installed twice — remove the copy"),
             )
             "Incompatible mods found" in log || "Incompatible mod set" in log || "ModResolutionException" in log -> Diagnosis(
-                "Моды несовместимы — подробности в логах",
+                tr("Моды несовместимы — подробности в логах", "Mods are incompatible — see the logs"),
             )
             "Mixin apply failed" in log || "MixinApplyError" in log || "InvalidInjectionException" in log -> Diagnosis(
-                "Какой-то мод не подходит к этой версии — выключи новые моды",
+                tr("Какой-то мод не подходит к этой версии — выключи новые моды", "Some mod doesn't fit this version — turn off new mods"),
             )
             else -> null
         }

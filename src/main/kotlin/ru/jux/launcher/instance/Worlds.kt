@@ -2,6 +2,7 @@ package ru.jux.launcher.instance
 
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Storage
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.servers.Nbt
 import java.io.IOException
@@ -42,12 +43,12 @@ data class WorldInfo(
 ) {
     val mode: String?
         get() = when {
-            level.hardcore -> "Хардкор"
+            level.hardcore -> tr("Хардкор", "Hardcore")
             else -> when (level.gameType) {
-                0 -> "Выживание"
-                1 -> "Творчество"
-                2 -> "Приключение"
-                3 -> "Наблюдение"
+                0 -> tr("Выживание", "Survival")
+                1 -> tr("Творчество", "Creative")
+                2 -> tr("Приключение", "Adventure")
+                3 -> tr("Наблюдение", "Spectator")
                 else -> null
             }
         }
@@ -121,7 +122,7 @@ object Worlds {
             Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING)
         } catch (e: IOException) {
             Files.deleteIfExists(partial)
-            throw IOException("Бэкап мира не сохранился: ${e.message}", e)
+            throw IOException(tr("Бэкап мира не сохранился: ${e.message}", "World backup was not saved: ${e.message}"), e)
         }
         Log.info("world $folder backed up to $target (${files.size} files)")
         return WorldBackup(target, folder, modifiedAt(target), target.fileSize(), auto)
@@ -162,7 +163,7 @@ object Worlds {
             val level = zip.entries().asSequence()
                 .filter { !it.isDirectory && it.name.substringAfterLast('/') == LEVEL }
                 .minByOrNull { it.name.count { char -> char == '/' } }
-                ?: throw IOException("В архиве нет мира: не нашёл level.dat")
+                ?: throw IOException(tr("В архиве нет мира: не нашёл level.dat", "No world in the archive: level.dat not found"))
             val prefix = level.name.substringBeforeLast('/', "").let { if (it.isEmpty()) "" else "$it/" }
             val base = safeName(prefix.trimEnd('/').substringAfterLast('/').ifEmpty { archive.nameWithoutExtension })
             val folder = generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base ($it)" }
@@ -196,7 +197,7 @@ object Worlds {
         try {
             entries.forEachIndexed { index, entry ->
                 val target = root.resolve(entry.name.removePrefix(prefix)).normalize()
-                if (!target.startsWith(root) || target == root) throw IOException("В архиве недопустимый путь: ${entry.name}")
+                if (!target.startsWith(root) || target == root) throw IOException(tr("В архиве недопустимый путь: ${entry.name}", "The archive has an invalid path: ${entry.name}"))
                 target.parent.createDirectories()
                 zip.getInputStream(entry).use { Files.copy(it, target, StandardCopyOption.REPLACE_EXISTING) }
                 done += entry.size.coerceAtLeast(0)
@@ -215,7 +216,7 @@ object Worlds {
     private fun worldDir(gameDir: Path, folder: String): Path {
         val saves = savesDir(gameDir).toAbsolutePath().normalize()
         val world = saves.resolve(folder).normalize()
-        if (world.parent != saves || !world.isDirectory()) throw IOException("Мира $folder нет в папке сборки")
+        if (world.parent != saves || !world.isDirectory()) throw IOException(tr("Мира $folder нет в папке сборки", "World $folder is not in the pack folder"))
         return world
     }
 

@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.ui.screens.formatPlayTime
-import ru.jux.launcher.ui.screens.plural
+import ru.jux.launcher.core.plural
 import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 import java.time.LocalDate
@@ -153,8 +153,8 @@ class ActivityTest {
         assertEquals("45 мин", formatPlayTime(45 * 60_000L))
         assertEquals("2 ч", formatPlayTime(120 * 60_000L))
         assertEquals("4 ч 12 мин", formatPlayTime(252 * 60_000L))
-        assertEquals("сессия", plural(21, "сессия", "сессии", "сессий"))
-        assertEquals("сессии", plural(3, "сессия", "сессии", "сессий"))
-        assertEquals("сессий", plural(12, "сессия", "сессии", "сессий"))
+        assertEquals("сессия", plural(21, "сессия", "сессии", "сессий", "session", "sessions"))
+        assertEquals("сессии", plural(3, "сессия", "сессии", "сессий", "session", "sessions"))
+        assertEquals("сессий", plural(12, "сессия", "сессии", "сессий", "session", "sessions"))
     }
 }

@@ -5,6 +5,7 @@ import kotlinx.serialization.decodeFromString
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.meta.AssetEndpoints
 import ru.jux.launcher.meta.AssetIndex
@@ -69,7 +70,7 @@ class VersionInstaller(
                 .onFailure { Log.warn("version json for $id is corrupt, refetching", it) }
         }
         val entry = VersionManifestRepository.load().versions.firstOrNull { it.id == id }
-            ?: throw IOException("Версия '$id' не найдена в манифесте Mojang")
+            ?: throw IOException(tr("Версия '$id' не найдена в манифесте Mojang", "Version '$id' is not in the Mojang manifest"))
         val text = Http.getString(entry.url)
         file.writeAtomically(text)
         return Json.decodeFromString(text)
@@ -94,16 +95,16 @@ class VersionInstaller(
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
     ): InstalledVersion {
-        onStage("Чтение метаданных")
+        onStage(tr("Чтение метаданных", "Reading metadata"))
         val plan = plan(version, onProgress)
 
-        onStage("Загрузка файлов")
+        onStage(tr("Загрузка файлов", "Downloading files"))
         downloader.run(plan.tasks, onProgress)
 
-        onStage("Распаковка библиотек")
+        onStage(tr("Распаковка библиотек", "Extracting libraries"))
         val nativesDir = NativesExtractor.extract(version.id, plan.nativeJars)
 
-        onStage("Подготовка ресурсов")
+        onStage(tr("Подготовка ресурсов", "Preparing assets"))
         val assetsDir = prepareAssets(version, plan.assetIndex, gameDir)
 
         return InstalledVersion(
@@ -237,7 +238,7 @@ class VersionInstaller(
             throw e
         } catch (e: Exception) {
             throw IOException(
-                "Не скачались ресурсы игры — проверь интернет",
+                tr("Не скачались ресурсы игры — проверь интернет", "Game assets did not download — check your internet connection"),
                 e,
             )
         }

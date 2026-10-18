@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.sha1Of
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.net.DownloadProgress
@@ -159,7 +160,7 @@ object ModManager {
         val loaders = loadersFor(kind)
         val find = { id: String -> Modrinth.pick(Modrinth.versions(id, loaders, gameVersion)) }
         val root = find(projectId)
-            ?: throw IOException("$title пока нет для ${kind.label} $gameVersion")
+            ?: throw IOException(tr("$title пока нет для ${kind.label} $gameVersion", "$title is not out for ${kind.label} $gameVersion yet"))
 
         val chosen = LinkedHashMap<String, Modrinth.Version>()
         chosen[projectId] = root
@@ -182,15 +183,15 @@ object ModManager {
             }
         }
         if (skipped.isNotEmpty()) {
-            throw IOException("$title требует ${skipped.joinToString()}, а для ${kind.label} $gameVersion их нет")
+            throw IOException(tr("$title требует ${skipped.joinToString()}, а для ${kind.label} $gameVersion их нет", "$title needs ${skipped.joinToString()}, which are not out for ${kind.label} $gameVersion"))
         }
 
         val dir = modsDir(gameDir).also { it.createDirectories() }
         val before = dir.listDirectoryEntries().toSet()
         val tasks = chosen.values.map { version ->
-            val file = version.primaryFile ?: throw IOException("У ${version.name} нет файла для скачивания")
+            val file = version.primaryFile ?: throw IOException(tr("У ${version.name} нет файла для скачивания", "${version.name} has no file to download"))
             val name = ContentKind.MOD.safeName(file.filename)
-                ?: throw IOException("Недопустимое имя файла: ${file.filename}")
+                ?: throw IOException(tr("Недопустимое имя файла: ${file.filename}", "Invalid file name: ${file.filename}"))
             DownloadTask(file.url, dir.resolve(name), file.sha1, file.size, label = name)
         }
         Downloader().run(tasks, onProgress)
@@ -199,7 +200,7 @@ object ModManager {
         val conflicts = added.mapNotNull(ModCompat::read).flatMap { ModCompat.conflicts(it, existing) }
         if (conflicts.isNotEmpty()) {
             added.forEach { runCatching { it.deleteIfExists() } }
-            throw IncompatibleModException(conflicts, "не стал ставить, чтобы игра не упала")
+            throw IncompatibleModException(conflicts, tr("не стал ставить, чтобы игра не упала", "not installed so the game won't crash"))
         }
         clearBlocked(gameDir)
         val titles = remote("installed titles") { Modrinth.titles(chosen.keys) }.orEmpty()
@@ -217,7 +218,7 @@ object ModManager {
         onProgress: (DownloadProgress) -> Unit = {},
     ): List<String> {
         val runLoader = shaderLoader(kind)
-            ?: throw IOException("Шейдеры не работают с ${kind.label} — выбери Fabric или NeoForge")
+            ?: throw IOException(tr("Шейдеры не работают с ${kind.label} — выбери Fabric или NeoForge", "Shaders don't work with ${kind.label} — pick Fabric or NeoForge"))
         val iris = if (IRIS in present || runLoader == LoaderKind.OPTIFINE) emptyList()
         else install(gameDir, runLoader, gameVersion, IRIS, "Iris", present, onProgress)
         val name = downloadPack(gameDir, ContentKind.SHADER, gameVersion, projectId, title, onProgress)
@@ -245,9 +246,9 @@ object ModManager {
         onProgress: (DownloadProgress) -> Unit,
     ): String = withContext(Dispatchers.IO) {
         val version = Modrinth.pick(Modrinth.versions(projectId, catalogLoaders(content, LoaderKind.VANILLA), gameVersion))
-            ?: throw IOException("$title пока нет для $gameVersion")
-        val file = version.primaryFile ?: throw IOException("У ${version.name} нет файла для скачивания")
-        val name = content.safeName(file.filename) ?: throw IOException("Недопустимое имя файла: ${file.filename}")
+            ?: throw IOException(tr("$title пока нет для $gameVersion", "$title is not out for $gameVersion yet"))
+        val file = version.primaryFile ?: throw IOException(tr("У ${version.name} нет файла для скачивания", "${version.name} has no file to download"))
+        val name = content.safeName(file.filename) ?: throw IOException(tr("Недопустимое имя файла: ${file.filename}", "Invalid file name: ${file.filename}"))
         Downloader().run(listOf(DownloadTask(file.url, content.dir(gameDir).resolve(name), file.sha1, file.size, label = name)), onProgress)
         Log.info("${content.projectType} installed into $gameDir: $name")
         name
@@ -255,9 +256,9 @@ object ModManager {
 
     suspend fun update(mod: InstalledItem, onProgress: (DownloadProgress) -> Unit = {}) = withContext(Dispatchers.IO) {
         val version = mod.update ?: return@withContext
-        val file = version.primaryFile ?: throw IOException("У ${version.name} нет файла для скачивания")
+        val file = version.primaryFile ?: throw IOException(tr("У ${version.name} нет файла для скачивания", "${version.name} has no file to download"))
         val name = ContentKind.MOD.safeName(file.filename)
-            ?: throw IOException("Недопустимое имя файла: ${file.filename}")
+            ?: throw IOException(tr("Недопустимое имя файла: ${file.filename}", "Invalid file name: ${file.filename}"))
         val target = mod.file.resolveSibling(if (mod.enabled) name else name + DISABLED)
         val download = mod.file.resolveSibling("$name.download")
         Downloader().run(listOf(DownloadTask(file.url, download, file.sha1, file.size, label = name)), onProgress)
@@ -270,7 +271,7 @@ object ModManager {
                 gameDirOf(mod)?.let { dir ->
                     InstanceStore.update(dir) { it.copy(blockedUpdates = (it.blockedUpdates + version.id).distinct().takeLast(BLOCKED_LIMIT)) }
                 }
-                throw IncompatibleModException(conflicts, "оставил прежнюю версию")
+                throw IncompatibleModException(conflicts, tr("оставил прежнюю версию", "kept the previous version"))
             }
         }
         locked(mod) {
@@ -295,9 +296,9 @@ object ModManager {
                 val jars = dir.listDirectoryEntries("*.jar").mapNotNull { jar -> ModCompat.read(jar)?.let { jar to it } }
                 val conflict = ModCompat.conflictsAmong(jars.map { it.second }).firstOrNull() ?: return@withContext changes
                 changes += replaceOneSide(conflict, jars, kind, gameVersion, rejected, onProgress)
-                    ?: throw IOException("${conflict.text} — выключи один в «Моды»")
+                    ?: throw IOException(tr("${conflict.text} — выключи один в «Моды»", "${conflict.text} — turn one off in Mods"))
             }
-            if (ModCompat.conflictsIn(dir).isNotEmpty()) throw IOException("Не все моды совместимы — выключи лишние в «Моды»")
+            if (ModCompat.conflictsIn(dir).isNotEmpty()) throw IOException(tr("Не все моды совместимы — выключи лишние в «Моды»", "Some mods are incompatible — turn the extra ones off in Mods"))
             changes
         } finally {
             if (rejected.isNotEmpty()) {
@@ -402,7 +403,7 @@ object ModManager {
         try {
             Files.move(jar, jar.resolveSibling(jar.name + DISABLED), StandardCopyOption.REPLACE_EXISTING)
         } catch (e: FileSystemException) {
-            throw IOException("${jar.name}: файл занят. Закрой игру и попробуй снова", e)
+            throw IOException(tr("${jar.name}: файл занят. Закрой игру и попробуй снова", "${jar.name}: the file is in use. Close the game and try again"), e)
         }
         clearBlocked(gameDir)
         Log.info("disabled ${jar.name} ($modId) after a crash")
@@ -435,7 +436,7 @@ object ModManager {
         try {
             action()
         } catch (e: FileSystemException) {
-            throw IOException("${mod.title}: файл занят. Закрой игру и попробуй снова", e)
+            throw IOException(tr("${mod.title}: файл занят. Закрой игру и попробуй снова", "${mod.title}: the file is in use. Close the game and try again"), e)
         }
     }
 

@@ -25,6 +25,7 @@ data class LauncherSettings(
     val lastPack: String? = null,
     val forceVerify: Boolean = false,
     val installId: String? = null,
+    val language: Language = systemLanguage(),
     val theme: ThemeMode = ThemeMode.DARK,
     val accentColor: Int = DEFAULT_ACCENT,
     val backdrop: Backdrop = Backdrop.NONE,

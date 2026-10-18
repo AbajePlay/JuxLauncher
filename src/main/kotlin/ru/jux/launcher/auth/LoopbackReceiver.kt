@@ -1,6 +1,7 @@
 package ru.jux.launcher.auth
 
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.tr
 import java.io.BufferedReader
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -22,13 +23,13 @@ internal class LoopbackReceiver : AutoCloseable {
 
         while (true) {
             val remaining = deadline - System.currentTimeMillis()
-            if (remaining <= 0) throw AuthException("Истекло время ожидания входа (5 минут)")
+            if (remaining <= 0) throw AuthException(tr("Истекло время ожидания входа (5 минут)", "Sign-in timed out (5 minutes)"))
             server.soTimeout = remaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
             val socket = try {
                 server.accept()
             } catch (_: SocketTimeoutException) {
-                throw AuthException("Истекло время ожидания входа (5 минут)")
+                throw AuthException(tr("Истекло время ожидания входа (5 минут)", "Sign-in timed out (5 minutes)"))
             }
 
             socket.use { client ->
@@ -43,8 +44,8 @@ internal class LoopbackReceiver : AutoCloseable {
 
                 params["error"]?.let { error ->
                     val description = params["error_description"] ?: error
-                    respond(client, 400, page("Вход отменён", description, ok = false))
-                    throw AuthException("Microsoft вернул ошибку: $description")
+                    respond(client, 400, page(tr("Вход отменён", "Sign-in cancelled"), description, ok = false))
+                    throw AuthException(tr("Microsoft вернул ошибку: $description", "Microsoft returned an error: $description"))
                 }
 
                 val code = params["code"] ?: run {
@@ -53,11 +54,11 @@ internal class LoopbackReceiver : AutoCloseable {
                 }
 
                 if (params["state"] != expectedState) {
-                    respond(client, 400, page("Ошибка безопасности", "Не совпал параметр state.", ok = false))
-                    throw AuthException("Не совпал параметр state — вход отклонён")
+                    respond(client, 400, page(tr("Ошибка безопасности", "Security error"), tr("Не совпал параметр state.", "The state parameter did not match."), ok = false))
+                    throw AuthException(tr("Не совпал параметр state — вход отклонён", "The state parameter did not match — sign-in rejected"))
                 }
 
-                respond(client, 200, page("Готово", "Вход выполнен. Вернитесь в JuxLauncher.", ok = true))
+                respond(client, 200, page(tr("Готово", "Done"), tr("Вход выполнен. Вернитесь в JuxLauncher.", "Signed in. Return to JuxLauncher."), ok = true))
                 return code
             }
         }
@@ -111,7 +112,7 @@ internal class LoopbackReceiver : AutoCloseable {
         val accent = if (ok) "#f5d105" else "#f87171"
         return """
             <!doctype html>
-            <html lang="ru"><head><meta charset="utf-8">
+            <html lang="${tr("ru", "en")}"><head><meta charset="utf-8">
             <title>JuxLauncher</title>
             <style>
               :root { color-scheme: dark; }

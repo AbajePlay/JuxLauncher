@@ -6,6 +6,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Paths
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.meta.mavenPath
 import java.io.IOException
@@ -29,9 +30,9 @@ internal object LegacyForge {
         val root = Json.parseToJsonElement(zip.getInputStream(entry).bufferedReader().readText()).jsonObject
         val info = root["versionInfo"] as? JsonObject ?: return null
         val install = root["install"] as? JsonObject
-            ?: throw IOException("Установщик Forge повреждён: в нём нет раздела install")
+            ?: throw IOException(tr("Установщик Forge повреждён: в нём нет раздела install", "The Forge installer is damaged: it has no install section"))
         if (info["inheritsFrom"] == null) {
-            throw IOException("Эта сборка Forge слишком старая: лаунчер ставит Forge начиная с Minecraft 1.7.10")
+            throw IOException(tr("Эта сборка Forge слишком старая: лаунчер ставит Forge начиная с Minecraft 1.7.10", "This Forge build is too old: the launcher installs Forge from Minecraft 1.7.10 on"))
         }
         Profile(
             id = info.text("id"),
@@ -47,7 +48,7 @@ internal object LegacyForge {
         val part = jar.resolveSibling("${jar.fileName}.part")
         ZipFile(installer.toFile()).use { zip ->
             val entry = zip.getEntry(profile.jarEntry)
-                ?: throw IOException("Установщик Forge повреждён: в нём нет ${profile.jarEntry}")
+                ?: throw IOException(tr("Установщик Forge повреждён: в нём нет ${profile.jarEntry}", "The Forge installer is damaged: it has no ${profile.jarEntry}"))
             zip.getInputStream(entry).use { Files.copy(it, part, StandardCopyOption.REPLACE_EXISTING) }
         }
         Files.move(part, jar, StandardCopyOption.REPLACE_EXISTING)
@@ -57,5 +58,5 @@ internal object LegacyForge {
 
     private fun JsonObject.text(name: String): String =
         (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-            ?: throw IOException("Установщик Forge повреждён: в профиле нет поля $name")
+            ?: throw IOException(tr("Установщик Forge повреждён: в профиле нет поля $name", "The Forge installer is damaged: the profile has no $name field"))
 }

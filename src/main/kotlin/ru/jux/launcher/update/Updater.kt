@@ -16,6 +16,7 @@ import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.toHex
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.launch.ArgumentBuilder
 import ru.jux.launcher.net.Http
 import ru.jux.launcher.net.Pieces
@@ -96,7 +97,7 @@ object Updater {
     suspend fun install(update: UpdateManifest) {
         try {
             val app = Shell.appExecutable
-                ?: throw IOException("Обновление ставится только в установленный лаунчер, не при запуске из IDE")
+                ?: throw IOException(tr("Обновление ставится только в установленный лаунчер, не при запуске из IDE", "Updates install only into the installed launcher, not when run from an IDE"))
             val file = download(update) { fraction, speed -> _state.value = UpdateState.Downloading(update, fraction, speed) }
             _state.value = UpdateState.Installing(update)
             startInstaller(file, app, update.version)
@@ -105,7 +106,7 @@ object Updater {
             throw e
         } catch (e: Exception) {
             Log.warn("update to ${update.version} failed", e)
-            _state.value = UpdateState.Failed(e.message ?: "Обновление не удалось", update)
+            _state.value = UpdateState.Failed(e.message ?: tr("Обновление не удалось", "Update failed"), update)
             throw e
         }
     }
@@ -153,7 +154,7 @@ object Updater {
                 fetchWhole(source.url, part, meter)
             }
             if (!sha256Of(part).equals(update.sha256, ignoreCase = true)) {
-                throw IOException("контрольная сумма обновления не сошлась — файл повреждён или подменён")
+                throw IOException(tr("контрольная сумма обновления не сошлась — файл повреждён или подменён", "update checksum mismatch — the file is damaged or tampered with"))
             }
             Files.move(part, target, StandardCopyOption.REPLACE_EXISTING)
             Files.list(dir).use { files -> files.filter { it != target }.forEach { runCatching { it.deleteIfExists() } } }
@@ -166,8 +167,8 @@ object Updater {
 
     private fun fetchWhole(url: String, part: Path, meter: Meter) {
         Pieces.client.newCall(Http.request(url)).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code} при загрузке обновления")
-            val body = response.body ?: throw IOException("пустой ответ сервера обновлений")
+            if (!response.isSuccessful) throw IOException(tr("HTTP ${response.code} при загрузке обновления", "HTTP ${response.code} while downloading the update"))
+            val body = response.body ?: throw IOException(tr("пустой ответ сервера обновлений", "empty response from the update server"))
             body.byteStream().use { input ->
                 Files.newOutputStream(part).use { output ->
                     val buffer = ByteArray(1 shl 16)
@@ -239,7 +240,7 @@ object Updater {
             )
         }
         Shell.runHidden(Shell.powershell(script), waitMs = 0)
-            ?: throw IOException("Не удалось запустить установщик обновления")
+            ?: throw IOException(tr("Не удалось запустить установщик обновления", "Could not start the update installer"))
         Log.info("update installer handed over: $installer")
         withTimeoutOrNull(READY_MILLIS) { while (!ready.exists()) delay(50) }
             ?: Log.warn("update splash did not show up in $READY_MILLIS ms")

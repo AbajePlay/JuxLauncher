@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.VersionKind
 import ru.jux.launcher.ui.LauncherState
@@ -60,21 +61,21 @@ private fun CreatePack(state: LauncherState) {
     val submit = { if (title.isNotBlank() && version.isNotBlank()) state.createPack(title, version, loader) }
 
     JuxDialog(
-        title = "Новая сборка",
-        subtitle = "Отдельная папка для модов и миров",
+        title = tr("Новая сборка", "New pack"),
+        subtitle = tr("Отдельная папка для модов и миров", "A separate folder for mods and worlds"),
         onDismiss = { state.modal = null },
         actions = {
-            JuxButton("Отмена", onClick = { state.modal = null })
-            JuxButton("Создать", style = ButtonStyle.PRIMARY, enabled = title.isNotBlank() && version.isNotBlank(), onClick = submit)
+            JuxButton(tr("Отмена", "Cancel"), onClick = { state.modal = null })
+            JuxButton(tr("Создать", "Create"), style = ButtonStyle.PRIMARY, enabled = title.isNotBlank() && version.isNotBlank(), onClick = submit)
         },
     ) {
-        Label("Название")
-        JuxTextField(title, { title = it.take(TITLE_LIMIT) }, "Например, «Выживание с друзьями»", Modifier.fillMaxWidth(), onSubmit = submit)
+        Label(tr("Название", "Name"))
+        JuxTextField(title, { title = it.take(TITLE_LIMIT) }, tr("Например, «Выживание с друзьями»", "E.g. “Survival with friends”"), Modifier.fillMaxWidth(), onSubmit = submit)
         Spacer(Modifier.height(14.dp))
-        Label("Версия игры")
+        Label(tr("Версия игры", "Game version"))
         VersionPicker(state, version, releases) { version = it }
         Spacer(Modifier.height(14.dp))
-        Label("Загрузчик")
+        Label(tr("Загрузчик", "Loader"))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             loaders.forEach { kind ->
                 ChoiceChip(kind.label, selected = loader == kind, onClick = { loader = kind })
@@ -86,23 +87,23 @@ private fun CreatePack(state: LauncherState) {
 @Composable
 private fun CopyPack(state: LauncherState, mode: PackMode.Copy) {
     val from = mode.from
-    var title by remember { mutableStateOf("${from.title} (копия)".take(TITLE_LIMIT)) }
+    var title by remember { mutableStateOf(tr("${from.title} (копия)", "${from.title} (copy)").take(TITLE_LIMIT)) }
     val submit = { if (title.isNotBlank()) state.createPack(title, from.id, from.loader, copyFrom = from) }
 
     JuxDialog(
-        title = "Копия сборки",
+        title = tr("Копия сборки", "Duplicate pack"),
         subtitle = from.label,
         onDismiss = { state.modal = null },
         actions = {
-            JuxButton("Отмена", onClick = { state.modal = null })
-            JuxButton("Скопировать", style = ButtonStyle.PRIMARY, enabled = title.isNotBlank(), onClick = submit)
+            JuxButton(tr("Отмена", "Cancel"), onClick = { state.modal = null })
+            JuxButton(tr("Скопировать", "Duplicate"), style = ButtonStyle.PRIMARY, enabled = title.isNotBlank(), onClick = submit)
         },
     ) {
-        Label("Название копии")
-        JuxTextField(title, { title = it.take(TITLE_LIMIT) }, "Название", Modifier.fillMaxWidth(), onSubmit = submit)
+        Label(tr("Название копии", "Copy name"))
+        JuxTextField(title, { title = it.take(TITLE_LIMIT) }, tr("Название", "Name"), Modifier.fillMaxWidth(), onSubmit = submit)
         Spacer(Modifier.height(10.dp))
         Text(
-            "Моды, настройки и миры скопируются, оригинал не изменится",
+            tr("Моды, настройки и миры скопируются, оригинал не изменится", "Mods, settings and worlds are copied; the original stays as is"),
             style = MaterialTheme.typography.bodySmall,
             color = JuxColors.TextMuted,
         )
@@ -116,21 +117,21 @@ private fun EditPack(state: LauncherState, mode: PackMode.Edit) {
     val submit = { if (title.isNotBlank()) state.editPack(pack, title) }
 
     JuxDialog(
-        title = "Сборка",
+        title = tr("Сборка", "Pack"),
         subtitle = "${pack.gameVersion} ${pack.loader.label}",
         onDismiss = { state.modal = null },
         actions = {
-            JuxButton("Отмена", onClick = { state.modal = null })
-            JuxButton("Сохранить", style = ButtonStyle.PRIMARY, enabled = title.isNotBlank(), onClick = submit)
+            JuxButton(tr("Отмена", "Cancel"), onClick = { state.modal = null })
+            JuxButton(tr("Сохранить", "Save"), style = ButtonStyle.PRIMARY, enabled = title.isNotBlank(), onClick = submit)
         },
     ) {
-        Label("Название")
-        JuxTextField(title, { title = it.take(TITLE_LIMIT) }, "Название", Modifier.fillMaxWidth(), onSubmit = submit)
+        Label(tr("Название", "Name"))
+        JuxTextField(title, { title = it.take(TITLE_LIMIT) }, tr("Название", "Name"), Modifier.fillMaxWidth(), onSubmit = submit)
         Spacer(Modifier.height(14.dp))
-        Label("Иконка")
+        Label(tr("Иконка", "Icon"))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ModIcon(state.packIconUrl(pack), 48.dp, fallback = JuxIcons.Layers)
-            JuxButton("Выбрать картинку…", icon = JuxIcons.Image, onClick = { state.choosePackIcon(pack) })
+            JuxButton(tr("Выбрать картинку…", "Choose image…"), icon = JuxIcons.Image, onClick = { state.choosePackIcon(pack) })
         }
     }
 }
@@ -140,7 +141,7 @@ private fun VersionPicker(state: LauncherState, version: String, releases: List<
     var open by remember { mutableStateOf(false) }
     ReportOpen(open, state::trackMenu)
     Box {
-        JuxButton(version.ifBlank { "Выбрать" }, icon = Icons.Default.KeyboardArrowDown, onClick = { open = true })
+        JuxButton(version.ifBlank { tr("Выбрать", "Choose") }, icon = Icons.Default.KeyboardArrowDown, onClick = { open = true })
         JuxDropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 320.dp)) {
             releases.forEach { id ->
                 JuxMenuItem(id, onClick = {

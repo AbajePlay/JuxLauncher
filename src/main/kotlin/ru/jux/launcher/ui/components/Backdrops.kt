@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Backdrop
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.ui.theme.JuxColors
 import java.io.IOException
@@ -35,9 +36,9 @@ object Backdrops {
         private set
 
     fun importImage(source: Path) {
-        if (source.fileSize() > MAX_IMAGE_BYTES) throw IOException("Картинка больше 25 МБ")
+        if (source.fileSize() > MAX_IMAGE_BYTES) throw IOException(tr("Картинка больше 25 МБ", "Image is larger than 25 MB"))
         val bytes = source.readBytes()
-        if (decode(bytes) == null) throw IOException("Формат картинки не поддерживается")
+        if (decode(bytes) == null) throw IOException(tr("Формат картинки не поддерживается", "Image format not supported"))
         Paths.backdropImage.writeAtomically(bytes)
         revision++
     }

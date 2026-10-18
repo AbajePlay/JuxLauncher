@@ -1,12 +1,16 @@
 package ru.jux.launcher.auth
 
 import kotlinx.serialization.Serializable
+import ru.jux.launcher.core.tr
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
-enum class AccountType(val label: String) {
-    MICROSOFT("Лицензия"),
-    OFFLINE("Офлайн"),
+enum class AccountType(private val ru: String, private val en: String) {
+    MICROSOFT("Лицензия", "Licensed"),
+    OFFLINE("Офлайн", "Offline"),
+    ;
+
+    val label: String get() = tr(ru, en)
 }
 
 @Serializable

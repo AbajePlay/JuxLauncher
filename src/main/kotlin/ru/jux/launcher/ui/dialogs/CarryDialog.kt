@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.instance.CarryPlan
 import ru.jux.launcher.instance.CarrySource
 import ru.jux.launcher.ui.LauncherState
@@ -56,29 +57,29 @@ internal fun CarryDialog(state: LauncherState, modal: Modal.Carry) {
         source.worlds.filter { it.folder in plan.worlds }.sumOf { it.bytes }
 
     JuxDialog(
-        title = if (modal.firstLaunch) "Перенести в ${entry.label}?" else "Перенести в ${entry.label}",
+        title = if (modal.firstLaunch) tr("Перенести в ${entry.label}?", "Copy over to ${entry.label}?") else tr("Перенести в ${entry.label}", "Copy over to ${entry.label}"),
         onDismiss = close,
         width = 560.dp,
         actions = {
             Text(
-                if (copyBytes > 0) "Скопируется ${formatBytes(copyBytes)}" else "",
+                if (copyBytes > 0) tr("Скопируется ${formatBytes(copyBytes)}", "${formatBytes(copyBytes)} to copy") else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = JuxColors.TextMuted,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
             if (modal.firstLaunch) {
-                JuxButton("Не переносить", onClick = { state.answerCarry(source, CarryPlan.NONE) })
+                JuxButton(tr("Не переносить", "Don't copy"), onClick = { state.answerCarry(source, CarryPlan.NONE) })
                 JuxButton(
-                    "Перенести и играть",
+                    tr("Перенести и играть", "Copy over and play"),
                     style = ButtonStyle.PRIMARY,
                     enabled = !plan.isEmpty,
                     onClick = { state.answerCarry(source, plan) },
                 )
             } else {
-                JuxButton("Отмена", onClick = close)
+                JuxButton(tr("Отмена", "Cancel"), onClick = close)
                 JuxButton(
-                    "Перенести",
+                    tr("Перенести", "Copy over"),
                     style = ButtonStyle.PRIMARY,
                     enabled = !plan.isEmpty,
                     onClick = { state.carryInto(entry, source, plan) },
@@ -87,7 +88,7 @@ internal fun CarryDialog(state: LauncherState, modal: Modal.Carry) {
         },
     ) {
         if (modal.sources.size > 1) {
-            Text("Откуда", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+            Text(tr("Откуда", "From"), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 modal.sources.forEach { option ->
@@ -98,28 +99,28 @@ internal fun CarryDialog(state: LauncherState, modal: Modal.Carry) {
             }
         } else {
             WithTooltip(OFFICIAL_HINT.takeIf { source.official }) {
-                Text("Из ${source.label}", style = MaterialTheme.typography.bodyMedium, color = JuxColors.TextSoft)
+                Text(tr("Из ${source.label}", "From ${source.label}"), style = MaterialTheme.typography.bodyMedium, color = JuxColors.TextSoft)
             }
         }
         Spacer(Modifier.height(12.dp))
         if (source.options) {
-            CheckRow("Настройки и управление", plan.options) { plan = plan.copy(options = !plan.options) }
+            CheckRow(tr("Настройки и управление", "Settings and controls"), plan.options) { plan = plan.copy(options = !plan.options) }
         }
         if (source.servers > 0) {
-            CheckRow("Серверы", plan.servers) { plan = plan.copy(servers = !plan.servers) }
+            CheckRow(tr("Серверы", "Servers"), plan.servers) { plan = plan.copy(servers = !plan.servers) }
         }
         if (source.packs.isNotEmpty()) {
             val shaders = source.packs.any { it.path.startsWith("shaderpacks/") }
-            CheckRow(if (shaders) "Ресурспаки и шейдеры" else "Ресурспаки", plan.packs) { plan = plan.copy(packs = !plan.packs) }
+            CheckRow(if (shaders) tr("Ресурспаки и шейдеры", "Resource packs and shaders") else tr("Ресурспаки", "Resource packs"), plan.packs) { plan = plan.copy(packs = !plan.packs) }
         }
         if (worlds.isNotEmpty()) {
             val on = plan.worlds.isNotEmpty()
-            CheckRow("Миры", on) { plan = plan.copy(worlds = if (on) emptySet() else worlds) }
+            CheckRow(tr("Миры", "Worlds"), on) { plan = plan.copy(worlds = if (on) emptySet() else worlds) }
         }
     }
 }
 
-private const val OFFICIAL_HINT = "Папка официального лаунчера и TLauncher"
+private val OFFICIAL_HINT: String get() = tr("Папка официального лаунчера и TLauncher", "Official launcher and TLauncher folder")
 
 private fun worldsOf(source: CarrySource): Set<String> = source.worlds.filter { !it.present }.map { it.folder }.toSet()
 

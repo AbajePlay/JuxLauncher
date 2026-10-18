@@ -5,6 +5,7 @@ import kotlinx.serialization.decodeFromString
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.net.Http
 import kotlin.io.path.exists
@@ -35,12 +36,14 @@ data class ManifestVersion(
     val kind: VersionKind get() = VersionKind.of(type)
 }
 
-enum class VersionKind(val label: String) {
-    RELEASE("Релизы"),
-    SNAPSHOT("Снапшоты"),
-    OLD_BETA("Beta"),
-    OLD_ALPHA("Alpha"),
-    OTHER("Прочее");
+enum class VersionKind(private val ru: String, private val en: String) {
+    RELEASE("Релизы", "Releases"),
+    SNAPSHOT("Снапшоты", "Snapshots"),
+    OLD_BETA("Beta", "Beta"),
+    OLD_ALPHA("Alpha", "Alpha"),
+    OTHER("Прочее", "Other");
+
+    val label: String get() = tr(ru, en)
 
     companion object {
         fun of(type: String): VersionKind = when (type.lowercase()) {

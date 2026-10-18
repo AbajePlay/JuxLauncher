@@ -1,5 +1,6 @@
 package ru.jux.launcher.meta
 
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.net.Http
 import java.io.IOException
 
@@ -22,12 +23,12 @@ object OptiFineRepository {
 
     fun build(gameVersion: String, edition: String): OptiFineBuild =
         buildsFor(gameVersion).firstOrNull { it.edition == edition }
-            ?: throw IOException("На optifine.net нет OptiFine $edition для $gameVersion")
+            ?: throw IOException(tr("На optifine.net нет OptiFine $edition для $gameVersion", "optifine.net has no OptiFine $edition for $gameVersion"))
 
     fun downloadUrl(build: OptiFineBuild): String {
         val page = Http.getString("$SITE/adloadx?f=${build.file}")
         val link = LINK.find(page)?.value?.replace("&amp;", "&")
-            ?: throw IOException("optifine.net не отдал файл — попробуй позже")
+            ?: throw IOException(tr("optifine.net не отдал файл — попробуй позже", "optifine.net did not return the file — try later"))
         return "$SITE/$link"
     }
 

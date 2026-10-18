@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.net.Http
 
 enum class LoaderKind(val label: String) {
@@ -42,8 +43,8 @@ data class LoaderVersion(
     val label: String
         get() = buildString {
             append(version)
-            if (recommended) append(" · рекомендуемая")
-            else if (stable) append(" · стабильная")
+            if (recommended) append(tr(" · рекомендуемая", " · recommended"))
+            else if (stable) append(tr(" · стабильная", " · stable"))
         }
 }
 

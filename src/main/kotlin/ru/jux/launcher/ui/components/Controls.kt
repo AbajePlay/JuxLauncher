@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 import ru.jux.launcher.ui.theme.PillShape
@@ -147,7 +148,7 @@ fun JuxTextField(
                 }
                 if (clearable && value.isNotEmpty()) {
                     IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, "Очистить", tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, tr("Очистить", "Clear"), tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -463,7 +464,7 @@ fun JuxDialog(
                     }
                 }
                 IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, "Закрыть", tint = JuxColors.TextMuted, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Close, tr("Закрыть", "Close"), tint = JuxColors.TextMuted, modifier = Modifier.size(18.dp))
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -499,7 +500,7 @@ fun NoteStrip(modifier: Modifier = Modifier, content: @Composable RowScope.() ->
 fun ConfirmStrip(text: String, action: String, danger: Boolean, onCancel: () -> Unit, onConfirm: () -> Unit) {
     NoteStrip(Modifier.padding(top = 12.dp)) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = JuxColors.Text, modifier = Modifier.weight(1f))
-        JuxButton("Отмена", onClick = onCancel)
+        JuxButton(tr("Отмена", "Cancel"), onClick = onCancel)
         JuxButton(action, style = if (danger) ButtonStyle.DANGER else ButtonStyle.PRIMARY, onClick = onConfirm)
     }
 }

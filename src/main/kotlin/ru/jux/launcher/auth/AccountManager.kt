@@ -9,6 +9,7 @@ import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.PrettyJson
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -68,7 +69,7 @@ object AccountManager {
     fun addOffline(name: String): Account {
         val trimmed = name.trim()
         if (!NICKNAME.matches(trimmed)) {
-            throw AuthException("Ник: 3-16 символов, только латиница, цифры и подчёркивание")
+            throw AuthException(tr("Ник: 3-16 символов, только латиница, цифры и подчёркивание", "Nickname: 3-16 characters, Latin letters, digits and underscores only"))
         }
         val account = Account.offline(trimmed)
         upsert(account)
@@ -80,7 +81,7 @@ object AccountManager {
 
         val refreshToken = TokenStore.reveal(account.refreshToken)
         if (refreshToken.isBlank()) {
-            throw AuthException("Сессия ${account.name} истекла — войди заново")
+            throw AuthException(tr("Сессия ${account.name} истекла — войди заново", "Session for ${account.name} expired — sign in again"))
         }
 
         val renewed = MicrosoftAuth().refresh(refreshToken, onStage)

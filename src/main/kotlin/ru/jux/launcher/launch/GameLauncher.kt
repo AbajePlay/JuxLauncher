@@ -13,6 +13,7 @@ import ru.jux.launcher.auth.AccountManager
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.VerifyCache
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.install.InstalledVersion
 import ru.jux.launcher.install.LoaderInstaller
 import ru.jux.launcher.install.VersionInstaller
@@ -51,10 +52,10 @@ object GameLauncher {
         val prepared = prepare(versionId, loader, gameDir, loaderVersion, onStage, onProgress, onNotice)
         withContext(Dispatchers.IO) { runCatching { ServerList.seedDefaults(prepared.gameDir) } }
 
-        onStage("Проверка аккаунта")
+        onStage(tr("Проверка аккаунта", "Checking the account"))
         val readyAccount = AccountManager.prepareForLaunch(account, onStage)
 
-        onStage("Запуск игры")
+        onStage(tr("Запуск игры", "Starting the game"))
         val command = withContext(Dispatchers.IO) {
             ArgumentBuilder(
                 installed = prepared.installed,
@@ -97,7 +98,7 @@ object GameLauncher {
             Settings.update { it.copy(forceVerify = false) }
         }
 
-        onStage("Чтение версии $versionId")
+        onStage(tr("Чтение версии $versionId", "Reading version $versionId"))
         val installer = VersionInstaller(
             downloader = Downloader(
                 concurrency = settings.downloadConcurrency.takeIf { it > 0 } ?: Downloader.DEFAULT_CONCURRENCY
@@ -112,7 +113,7 @@ object GameLauncher {
                 resolveJava(baseVersion.javaVersion?.component, baseVersion.javaVersion?.majorVersion, progress.sink("java"))
             }
             val awaitJava: suspend () -> Path = {
-                if (!java.isCompleted) onStage("Докачиваю Java")
+                if (!java.isCompleted) onStage(tr("Докачиваю Java", "Finishing the Java download"))
                 java.await()
             }
 
@@ -145,7 +146,7 @@ object GameLauncher {
                 } catch (e: Exception) {
                     if (loader.isModded) throw e
                     Log.warn("fabric for the boost unavailable, starting vanilla: ${e.message}")
-                    onNotice("FPS-буст в этот раз не включился: ${e.message}")
+                    onNotice(tr("FPS-буст в этот раз не включился: ${e.message}", "FPS boost did not turn on this time: ${e.message}"))
                     versionId
                 }
             } else {
@@ -172,11 +173,11 @@ object GameLauncher {
         val boost = PerformancePack.sync(gameDir, versionId, onStage, onProgress)
         when {
             !boost.active && boost.offline ->
-                onNotice("FPS-буст пропущен: нет связи с Modrinth")
+                onNotice(tr("FPS-буст пропущен: нет связи с Modrinth", "FPS boost skipped: can't reach Modrinth"))
             !boost.active ->
-                onNotice("Для $versionId FPS-буста пока нет")
+                onNotice(tr("Для $versionId FPS-буста пока нет", "No FPS boost for $versionId yet"))
             boost.missing.isNotEmpty() ->
-                onNotice("FPS-буст без ${boost.missing.joinToString()}: для $versionId их нет")
+                onNotice(tr("FPS-буст без ${boost.missing.joinToString()}: для $versionId их нет", "FPS boost without ${boost.missing.joinToString()}: not out for $versionId"))
         }
         return if (boost.active) LoaderKind.FABRIC else loader
     }
@@ -195,8 +196,12 @@ object GameLauncher {
         JavaManager.findLocal(major)?.let { return it }
 
         throw IOException(
-            "Не скачалась Java $major — " +
-                "проверь интернет или поставь JDK $major"
+            tr(
+                "Не скачалась Java $major — " +
+                    "проверь интернет или поставь JDK $major",
+                "Java $major did not download — " +
+                    "check your internet connection or install JDK $major",
+            )
         )
     }
 

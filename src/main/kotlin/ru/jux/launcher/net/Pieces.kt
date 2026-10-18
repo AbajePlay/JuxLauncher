@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
+import ru.jux.launcher.core.tr
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -69,8 +70,8 @@ object Pieces {
             try {
                 val request = Request.Builder().url(url).header("Range", "bytes=$position-$end").header("Connection", "close").build()
                 client.newCall(request).execute().use { response ->
-                    if (response.code != 206) throw IOException("сервер отдал HTTP ${response.code} вместо части файла")
-                    val input = response.body?.byteStream() ?: throw IOException("пустой ответ сервера")
+                    if (response.code != 206) throw IOException(tr("сервер отдал HTTP ${response.code} вместо части файла", "server returned HTTP ${response.code} instead of a file part"))
+                    val input = response.body?.byteStream() ?: throw IOException(tr("пустой ответ сервера", "empty server response"))
                     val buffer = ByteArray(1 shl 16)
                     while (position <= end) {
                         val n = input.read(buffer, 0, minOf(buffer.size.toLong(), end - position + 1).toInt())
@@ -80,7 +81,7 @@ object Pieces {
                         onBytes(n)
                     }
                 }
-                if (position <= end) throw IOException("соединение оборвалось посреди загрузки")
+                if (position <= end) throw IOException(tr("соединение оборвалось посреди загрузки", "connection dropped mid-download"))
             } catch (e: IOException) {
                 if (++attempt >= ATTEMPTS) throw e
                 Thread.sleep(RETRY_MILLIS * attempt)

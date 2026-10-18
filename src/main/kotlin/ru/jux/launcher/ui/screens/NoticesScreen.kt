@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ru.jux.launcher.core.Notice
 import ru.jux.launcher.core.NoticeAction
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
@@ -57,13 +58,13 @@ fun NoticesScreen(state: LauncherState) {
     Column(Modifier.fillMaxSize().padding(JuxDimens.Gutter)) {
         Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Уведомления",
+                tr("Уведомления", "Notifications"),
                 style = MaterialTheme.typography.headlineSmall,
                 color = JuxColors.Text,
                 modifier = Modifier.weight(1f),
             )
             if (items.isNotEmpty()) {
-                JuxButton("Очистить", onClick = state::clearNotices, icon = Icons.Default.Delete)
+                JuxButton(tr("Очистить", "Clear"), onClick = state::clearNotices, icon = Icons.Default.Delete)
             }
         }
         Spacer(Modifier.height(20.dp))
@@ -128,7 +129,7 @@ private fun NoticeCard(state: LauncherState, notice: Notice, fresh: Boolean) {
                     modifier = Modifier.padding(start = 10.dp),
                 )
                 IconButton(onClick = { state.removeNotice(notice) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, "Убрать", tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Close, tr("Убрать", "Dismiss"), tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
                 }
             }
             if (notice.title != null) {
@@ -180,10 +181,10 @@ private fun EmptyNotices() {
                 Icon(Icons.Default.Notifications, null, tint = JuxColors.Accent, modifier = Modifier.size(28.dp))
             }
             Spacer(Modifier.height(18.dp))
-            Text("Пока тихо", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = JuxColors.Text)
+            Text(tr("Пока тихо", "All quiet"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = JuxColors.Text)
             Spacer(Modifier.height(6.dp))
             Text(
-                "Здесь появятся ошибки и подсказки",
+                tr("Здесь появятся ошибки и подсказки", "Errors and tips will show up here"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = JuxColors.TextMuted,
                 textAlign = TextAlign.Center,

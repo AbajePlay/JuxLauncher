@@ -1,6 +1,7 @@
 package ru.jux.launcher.update
 
 import ru.jux.launcher.core.Shell
+import ru.jux.launcher.core.tr
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,7 +15,7 @@ internal object UpdateSplash {
     fun prepare(dir: Path) {
         dir.createDirectories()
         ASSETS.forEach { resource ->
-            val stream = UpdateSplash::class.java.getResourceAsStream("/$resource") ?: throw IOException("В лаунчере нет $resource")
+            val stream = UpdateSplash::class.java.getResourceAsStream("/$resource") ?: throw IOException(tr("В лаунчере нет $resource", "The launcher is missing $resource"))
             stream.use { Files.copy(it, dir.resolve(resource.substringAfterLast('/')), StandardCopyOption.REPLACE_EXISTING) }
         }
     }
@@ -28,8 +29,8 @@ internal object UpdateSplash {
         val run = listOf(
             "\$launcher", "\$installer", "\$arguments", "\$app", "\$assets",
             Shell.psLiteral(version),
-            Shell.psLiteral("Обновляю JuxLauncher до $version"),
-            Shell.psLiteral("Обновление не встало (код {0}), открываю прежнюю версию"),
+            Shell.psLiteral(tr("Обновляю JuxLauncher до $version", "Updating JuxLauncher to $version")),
+            Shell.psLiteral(tr("Обновление не встало (код {0}), открываю прежнюю версию", "Update failed (code {0}), opening the previous version")),
             "\$ready",
         ).joinToString(", ")
         return listOf(

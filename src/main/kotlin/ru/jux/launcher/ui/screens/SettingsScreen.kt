@@ -42,12 +42,14 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import ru.jux.launcher.core.Backdrop
 import ru.jux.launcher.core.DEFAULT_ACCENT
+import ru.jux.launcher.core.Language
 import ru.jux.launcher.core.LauncherSettings
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.SettingsDefaults
 import ru.jux.launcher.core.ThemeMode
 import ru.jux.launcher.core.VerifyCache
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.net.Downloader
 import ru.jux.launcher.ui.LauncherState
@@ -78,18 +80,19 @@ fun SettingsScreen(state: LauncherState) {
         Modifier.fillMaxSize().padding(JuxDimens.Gutter).verticalScroll(scroll),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        LanguagePanel(settings)
         AppearancePanel(state, settings)
         MemoryPanel(settings)
 
         Panel(Modifier.fillMaxWidth()) {
             Column {
-                SectionTitle("Список версий")
-                LabeledRow("Показывать снапшоты") {
+                SectionTitle(tr("Список версий", "Version list"))
+                LabeledRow(tr("Показывать снапшоты", "Show snapshots")) {
                     JuxSwitch(settings.showSnapshots) { checked ->
                         Settings.update { it.copy(showSnapshots = checked) }
                     }
                 }
-                LabeledRow("Показывать alpha и beta") {
+                LabeledRow(tr("Показывать alpha и beta", "Show alpha and beta")) {
                     JuxSwitch(settings.showOldVersions) { checked ->
                         Settings.update { it.copy(showOldVersions = checked) }
                     }
@@ -102,7 +105,27 @@ fun SettingsScreen(state: LauncherState) {
     }
 }
 
-private enum class ColorSlot(val title: String) { ACCENT("Акцент"), BACKDROP("Цвет фона") }
+@Composable
+private fun LanguagePanel(settings: LauncherSettings) {
+    Panel(Modifier.fillMaxWidth()) {
+        Column {
+            SectionTitle("Язык · Language")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Language.entries.forEach { language ->
+                    ChoiceChip(language.title, selected = settings.language == language, onClick = {
+                        Settings.update { it.copy(language = language) }
+                    })
+                }
+            }
+        }
+    }
+}
+
+private enum class ColorSlot(private val ru: String, private val en: String) {
+    ACCENT("Акцент", "Accent"), BACKDROP("Цвет фона", "Background color");
+
+    val title: String get() = tr(ru, en)
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -110,8 +133,8 @@ private fun AppearancePanel(state: LauncherState, settings: LauncherSettings) {
     var picking by remember { mutableStateOf<ColorSlot?>(null) }
     Panel(Modifier.fillMaxWidth()) {
         Column {
-            SectionTitle("Оформление")
-            FieldLabel("Тема")
+            SectionTitle(tr("Оформление", "Appearance"))
+            FieldLabel(tr("Тема", "Theme"))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeMode.entries.forEach { mode ->
                     val palette = paletteOf(mode)
@@ -121,30 +144,30 @@ private fun AppearancePanel(state: LauncherState, settings: LauncherSettings) {
                 }
             }
 
-            FieldLabel("Акцент", top = 16.dp)
+            FieldLabel(tr("Акцент", "Accent"), top = 16.dp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SwatchChip(hexOf(settings.accentColor), fill = colorOf(settings.accentColor), selected = false) { picking = ColorSlot.ACCENT }
                 if (settings.accentColor != DEFAULT_ACCENT) {
-                    ChoiceChip("Сбросить", selected = false, onClick = { Settings.update { it.copy(accentColor = DEFAULT_ACCENT) } })
+                    ChoiceChip(tr("Сбросить", "Reset"), selected = false, onClick = { Settings.update { it.copy(accentColor = DEFAULT_ACCENT) } })
                 }
             }
 
-            FieldLabel("Фон", top = 16.dp)
+            FieldLabel(tr("Фон", "Background"), top = 16.dp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ChoiceChip(Backdrop.NONE.title, selected = settings.backdrop == Backdrop.NONE, onClick = {
                     Settings.update { it.copy(backdrop = Backdrop.NONE) }
                 })
                 val colored = settings.backdrop == Backdrop.COLOR
-                SwatchChip(if (colored) hexOf(settings.backdropColor) else "Свой цвет…", fill = colorOf(settings.backdropColor), selected = colored) {
+                SwatchChip(if (colored) hexOf(settings.backdropColor) else tr("Свой цвет…", "Custom color…"), fill = colorOf(settings.backdropColor), selected = colored) {
                     picking = ColorSlot.BACKDROP
                 }
                 val pictured = settings.backdrop == Backdrop.IMAGE
-                ChoiceChip(if (pictured) "Своя картинка" else "Своя картинка…", selected = pictured, icon = JuxIcons.Image, onClick = state::chooseBackdropImage)
+                ChoiceChip(if (pictured) tr("Своя картинка", "Custom image") else tr("Своя картинка…", "Custom image…"), selected = pictured, icon = JuxIcons.Image, onClick = state::chooseBackdropImage)
             }
             if (settings.backdrop == Backdrop.IMAGE) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Затемнение: ${(settings.backdropDim * 100).roundToInt()}%",
+                    tr("Затемнение: ${(settings.backdropDim * 100).roundToInt()}%", "Dim: ${(settings.backdropDim * 100).roundToInt()}%"),
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.TextMuted,
                 )
@@ -220,9 +243,12 @@ private fun MemoryPanel(settings: LauncherSettings) {
 
     Panel(Modifier.fillMaxWidth()) {
         Column {
-            SectionTitle("Память")
+            SectionTitle(tr("Память", "Memory"))
             Text(
-                "${formatMemory(settings.memoryMb)} для игры · в компьютере ${formatTotalMemory(total)}",
+                tr(
+                    "${formatMemory(settings.memoryMb)} для игры · в компьютере ${formatTotalMemory(total)}",
+                    "${formatMemory(settings.memoryMb)} for the game · ${formatTotalMemory(total)} installed",
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = JuxColors.Text,
             )
@@ -234,7 +260,7 @@ private fun MemoryPanel(settings: LauncherSettings) {
                     })
                 }
                 if (settings.memoryMb !in presets) {
-                    ChoiceChip("${formatMemory(settings.memoryMb)} (своё)", selected = true, onClick = {})
+                    ChoiceChip(tr("${formatMemory(settings.memoryMb)} (своё)", "${formatMemory(settings.memoryMb)} (custom)"), selected = true, onClick = {})
                 }
             }
         }
@@ -245,7 +271,7 @@ private fun MemoryPanel(settings: LauncherSettings) {
 private fun JvmArgumentsPanel(settings: LauncherSettings) {
     Panel(Modifier.fillMaxWidth()) {
         Column {
-            SectionTitle("Аргументы JVM")
+            SectionTitle(tr("Аргументы JVM", "JVM arguments"))
             OutlinedTextField(
                 value = settings.jvmArgs,
                 onValueChange = { value -> Settings.update { it.copy(jvmArgs = value) } },
@@ -260,7 +286,7 @@ private fun JvmArgumentsPanel(settings: LauncherSettings) {
                 modifier = Modifier.fillMaxWidth().height(96.dp),
             )
             Spacer(Modifier.height(8.dp))
-            JuxButton("Сбросить к рекомендуемым", onClick = {
+            JuxButton(tr("Сбросить к рекомендуемым", "Reset to recommended"), onClick = {
                 Settings.update { it.copy(jvmArgs = SettingsDefaults.JVM_ARGS) }
             })
         }
@@ -271,9 +297,9 @@ private fun JvmArgumentsPanel(settings: LauncherSettings) {
 private fun DownloadsPanel(state: LauncherState, settings: LauncherSettings) {
     Panel(Modifier.fillMaxWidth()) {
         Column {
-            SectionTitle("Загрузка и целостность")
+            SectionTitle(tr("Загрузка и целостность", "Downloads & integrity"))
             val threads = settings.downloadConcurrency.takeIf { it > 0 } ?: Downloader.DEFAULT_CONCURRENCY
-            Text("Потоков загрузки: $threads", style = MaterialTheme.typography.bodyMedium, color = JuxColors.Text)
+            Text(tr("Потоков загрузки: $threads", "Download threads: $threads"), style = MaterialTheme.typography.bodyMedium, color = JuxColors.Text)
             Slider(
                 value = threads.toFloat(),
                 onValueChange = { value -> Settings.update { it.copy(downloadConcurrency = value.toInt()) } },
@@ -283,14 +309,14 @@ private fun DownloadsPanel(state: LauncherState, settings: LauncherSettings) {
 
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                WithTooltip("Если игра вылетает из-за битых файлов") {
-                    JuxButton("Перепроверить файлы", onClick = {
+                WithTooltip(tr("Если игра вылетает из-за битых файлов", "If the game crashes because of broken files")) {
+                    JuxButton(tr("Перепроверить файлы", "Re-verify files"), onClick = {
                         VerifyCache.clear()
-                        state.inform("Кэш сброшен — файлы перепроверятся при запуске")
+                        state.inform(tr("Кэш сброшен — файлы перепроверятся при запуске", "Cache cleared — files will be re-verified on launch"))
                     })
                 }
-                JuxButton("Папка лаунчера", icon = JuxIcons.Folder, onClick = { state.openFolder(Paths.root) })
-                JuxButton("Лог лаунчера", icon = JuxIcons.Log, onClick = { state.showLogs(null, LogSource.LAUNCHER) })
+                JuxButton(tr("Папка лаунчера", "Launcher folder"), icon = JuxIcons.Folder, onClick = { state.openFolder(Paths.root) })
+                JuxButton(tr("Лог лаунчера", "Launcher log"), icon = JuxIcons.Log, onClick = { state.showLogs(null, LogSource.LAUNCHER) })
             }
         }
     }

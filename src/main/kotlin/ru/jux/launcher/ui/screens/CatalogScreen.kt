@@ -43,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Shell
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.ContentKind
 import ru.jux.launcher.mods.IncompatibleModException
@@ -86,25 +87,25 @@ private val CatalogTab.kind: ContentKind?
 
 private val CatalogTab.title: String
     get() = when (this) {
-        CatalogTab.PACKS -> "Сборки"
-        CatalogTab.MODS -> "Моды"
-        CatalogTab.SHADERS -> "Шейдеры"
-        CatalogTab.RESOURCE_PACKS -> "Ресурспаки"
-        CatalogTab.INSTALLED -> "Установленные"
+        CatalogTab.PACKS -> tr("Сборки", "Packs")
+        CatalogTab.MODS -> tr("Моды", "Mods")
+        CatalogTab.SHADERS -> tr("Шейдеры", "Shaders")
+        CatalogTab.RESOURCE_PACKS -> tr("Ресурспаки", "Resource packs")
+        CatalogTab.INSTALLED -> tr("Установленные", "Installed")
     }
 
 private val ContentKind.title: String
     get() = when (this) {
-        ContentKind.MOD -> "Моды"
-        ContentKind.SHADER -> "Шейдеры"
-        ContentKind.RESOURCE_PACK -> "Ресурспаки"
+        ContentKind.MOD -> tr("Моды", "Mods")
+        ContentKind.SHADER -> tr("Шейдеры", "Shaders")
+        ContentKind.RESOURCE_PACK -> tr("Ресурспаки", "Resource packs")
     }
 
 private val ContentKind.searchHint: String
     get() = when (this) {
-        ContentKind.MOD -> "Найти мод"
-        ContentKind.SHADER -> "Найти шейдер"
-        ContentKind.RESOURCE_PACK -> "Найти ресурспак"
+        ContentKind.MOD -> tr("Найти мод", "Search mods")
+        ContentKind.SHADER -> tr("Найти шейдер", "Search shaders")
+        ContentKind.RESOURCE_PACK -> tr("Найти ресурспак", "Search resource packs")
     }
 
 private class PacksModel(private val scope: CoroutineScope) {
@@ -122,7 +123,7 @@ private class PacksModel(private val scope: CoroutineScope) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error = e.message ?: "Не получилось"
+                error = e.message ?: tr("Не получилось", "Something went wrong")
             } finally {
                 resolving = null
             }
@@ -171,7 +172,7 @@ private class ContentModel(
 
     fun update(mod: InstalledItem) = work(mod.fileName) {
         ModManager.update(mod) { progress = it }
-        message = "${mod.title} обновлён до ${mod.update?.versionNumber.orEmpty()}".trimEnd()
+        message = tr("${mod.title} обновлён до ${mod.update?.versionNumber.orEmpty()}", "${mod.title} updated to ${mod.update?.versionNumber.orEmpty()}").trimEnd()
     }
 
     fun updateAll() = work(ALL) {
@@ -195,9 +196,9 @@ private class ContentModel(
             skipped = reasons
         } while (pending.isNotEmpty() && done > before)
         if (skipped.isEmpty()) {
-            message = "Обновлено модов: $done"
+            message = tr("Обновлено модов: $done", "Mods updated: $done")
         } else {
-            error = (listOf("Обновлено модов: $done") + skipped).joinToString(". ")
+            error = (listOf(tr("Обновлено модов: $done", "Mods updated: $done")) + skipped).joinToString(". ")
         }
     }
 
@@ -207,7 +208,7 @@ private class ContentModel(
 
     fun remove(item: InstalledItem) = work(item.fileName) {
         withContext(Dispatchers.IO) { ModManager.remove(item) }
-        message = "${item.title} удалён"
+        message = tr("${item.title} удалён", "${item.title} removed")
     }
 
     fun folder(kind: ContentKind?): Path = (kind?.dir(dir) ?: dir).also { runCatching { it.createDirectories() } }
@@ -223,7 +224,7 @@ private class ContentModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error = e.message ?: "Не получилось"
+                error = e.message ?: tr("Не получилось", "Something went wrong")
             } finally {
                 progress = null
             }
@@ -292,7 +293,7 @@ private fun ColumnScope.PacksTab(state: LauncherState, model: PacksModel) {
     SearchField(
         value = model.search.query,
         onValueChange = { model.search.query = it },
-        placeholder = "Найти сборку",
+        placeholder = tr("Найти сборку", "Search packs"),
         modifier = Modifier.fillMaxWidth(),
     )
     Spacer(Modifier.height(10.dp))
@@ -311,21 +312,21 @@ private fun PackRow(state: LauncherState, model: PacksModel, hit: Modrinth.Searc
         title = hit.title,
         byline = listOfNotNull(
             hit.author.takeIf { it.isNotBlank() },
-            "${formatCount(hit.downloads)} загрузок",
+            tr("${formatCount(hit.downloads)} загрузок", "${formatCount(hit.downloads)} downloads"),
             listOfNotNull(loaderOf(hit)?.label, hit.versions.lastOrNull()).joinToString(" ").ifBlank { null },
         ).joinToString(" · "),
         details = hit.description,
         onOpen = { Shell.browse("https://modrinth.com/modpack/${hit.slug.ifBlank { hit.projectId }}") },
     ) {
         when {
-            busy -> Text("Ставлю…", style = MaterialTheme.typography.labelLarge, color = JuxColors.TextMuted)
+            busy -> Text(tr("Ставлю…", "Installing…"), style = MaterialTheme.typography.labelLarge, color = JuxColors.TextMuted)
             pack != null && pack.id in state.packUpdates ->
-                JuxButton("Обновить", icon = Icons.Default.Refresh, enabled = !state.busy, onClick = { state.updatePack(pack) })
-            pack != null -> JuxButton("Играть", icon = Icons.Default.PlayArrow, style = ButtonStyle.PRIMARY, enabled = !state.busy, onClick = {
+                JuxButton(tr("Обновить", "Update"), icon = Icons.Default.Refresh, enabled = !state.busy, onClick = { state.updatePack(pack) })
+            pack != null -> JuxButton(tr("Играть", "Play"), icon = Icons.Default.PlayArrow, style = ButtonStyle.PRIMARY, enabled = !state.busy, onClick = {
                 state.selectEntry(state.entryFor(pack))
                 state.play()
             })
-            else -> JuxButton("Установить", icon = JuxIcons.Download, enabled = !state.busy && model.resolving == null, onClick = {
+            else -> JuxButton(tr("Установить", "Install"), icon = JuxIcons.Download, enabled = !state.busy && model.resolving == null, onClick = {
                 model.install(state, hit)
             })
         }
@@ -343,11 +344,11 @@ private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, m
         Spacer(Modifier.weight(1f))
         val updates = model.updates
         if (tab == CatalogTab.INSTALLED && updates.isNotEmpty()) {
-            JuxButton("Обновить все · ${updates.size}", icon = Icons.Default.Refresh, enabled = model.working.isEmpty(), onClick = model::updateAll)
+            JuxButton(tr("Обновить все · ${updates.size}", "Update all · ${updates.size}"), icon = Icons.Default.Refresh, enabled = model.working.isEmpty(), onClick = model::updateAll)
         }
-        WithTooltip("Открыть папку") {
+        WithTooltip(tr("Открыть папку", "Open folder")) {
             IconButton(onClick = { state.openFolder(model.folder(kind)) }, modifier = Modifier.size(36.dp)) {
-                Icon(JuxIcons.Folder, "Открыть папку", tint = JuxColors.TextMuted, modifier = Modifier.size(20.dp))
+                Icon(JuxIcons.Folder, tr("Открыть папку", "Open folder"), tint = JuxColors.TextMuted, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -356,8 +357,8 @@ private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, m
         kind == null -> ListBox(Modifier.weight(1f)) { InstalledList(state, target, model, it) }
         kind == ContentKind.SHADER && !state.supportsShaders(target) -> ListBox(Modifier.weight(1f)) {
             ListHint(
-                if (target.loader == LoaderKind.FORGE) "Шейдеры не работают с Forge — выбери Fabric или NeoForge"
-                else "Fabric пока не поддерживает ${target.id} — шейдеров нет"
+                if (target.loader == LoaderKind.FORGE) tr("Шейдеры не работают с Forge — выбери Fabric или NeoForge", "Shaders don't work with Forge — pick Fabric or NeoForge")
+                else tr("Fabric пока не поддерживает ${target.id} — шейдеров нет", "Fabric doesn't support ${target.id} yet — no shaders")
             )
         }
         else -> {
@@ -386,7 +387,7 @@ private fun TargetPicker(state: LauncherState, target: VersionEntry) {
     var open by remember { mutableStateOf(false) }
     ReportOpen(open, state::trackMenu)
     Box {
-        JuxButton("Для ${target.label}", icon = Icons.Default.KeyboardArrowDown, onClick = { open = true })
+        JuxButton(tr("Для ${target.label}", "For ${target.label}"), icon = Icons.Default.KeyboardArrowDown, onClick = { open = true })
         JuxDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             state.catalogTargets().forEach { entry ->
                 JuxMenuItem(entry.label, onClick = {
@@ -405,16 +406,16 @@ private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.
     ContentRow(
         icon = hit.iconUrl,
         title = hit.title,
-        byline = hit.author.takeIf { it.isNotBlank() }?.let { "$it · ${formatCount(hit.downloads)} загрузок" }
-            ?: "${formatCount(hit.downloads)} загрузок",
+        byline = hit.author.takeIf { it.isNotBlank() }?.let { tr("$it · ${formatCount(hit.downloads)} загрузок", "$it · ${formatCount(hit.downloads)} downloads") }
+            ?: tr("${formatCount(hit.downloads)} загрузок", "${formatCount(hit.downloads)} downloads"),
         details = hit.description,
         onOpen = { Shell.browse(kind.page(hit.slug.ifBlank { hit.projectId })) },
     ) {
         when {
-            installed -> Tag("Установлен", JuxColors.Success)
-            busy -> Text("Ставлю…", style = MaterialTheme.typography.labelLarge, color = JuxColors.TextMuted)
+            installed -> Tag(tr("Установлен", "Installed"), JuxColors.Success)
+            busy -> Text(tr("Ставлю…", "Installing…"), style = MaterialTheme.typography.labelLarge, color = JuxColors.TextMuted)
             else -> JuxButton(
-                "Установить",
+                tr("Установить", "Install"),
                 icon = JuxIcons.Download,
                 enabled = ContentModel.ALL !in model.working,
                 onClick = { model.install(kind, hit) },
@@ -428,8 +429,8 @@ private fun InstalledList(state: LauncherState, target: VersionEntry, model: Con
     val kinds = listOfNotNull(ContentKind.MOD.takeIf { target.loader.hasMods }, ContentKind.SHADER, ContentKind.RESOURCE_PACK)
     val sections = kinds.map { it to model.installed[it].orEmpty() }.filter { it.second.isNotEmpty() }
     when {
-        !model.scanned -> ListHint("Смотрю, что стоит в ${target.label}…")
-        sections.isEmpty() -> ListHint("Пока пусто", "Открыть каталог") {
+        !model.scanned -> ListHint(tr("Смотрю, что стоит в ${target.label}…", "Checking what's in ${target.label}…"))
+        sections.isEmpty() -> ListHint(tr("Пока пусто", "Nothing here yet"), tr("Открыть каталог", "Open catalog")) {
             state.catalogTab = if (target.loader.hasMods) CatalogTab.MODS else CatalogTab.SHADERS
         }
         else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
@@ -457,24 +458,24 @@ private fun InstalledRow(model: ContentModel, item: InstalledItem) {
         icon = item.iconUrl,
         title = item.title,
         byline = listOfNotNull(item.versionNumber.takeIf { it.isNotBlank() }, item.fileName).joinToString(" · "),
-        details = update?.let { "Обновление: ${it.versionNumber}" },
+        details = update?.let { tr("Обновление: ${it.versionNumber}", "Update: ${it.versionNumber}") },
         detailsAccent = update != null,
         dimmed = !item.enabled,
-        badge = if (locked) "FPS-буст" else null,
+        badge = if (locked) tr("FPS-буст", "FPS boost") else null,
     ) {
         if (update != null && !locked) {
-            JuxButton("Обновить", icon = Icons.Default.Refresh, enabled = !busy, onClick = { model.update(item) })
+            JuxButton(tr("Обновить", "Update"), icon = Icons.Default.Refresh, enabled = !busy, onClick = { model.update(item) })
             Spacer(Modifier.width(8.dp))
         }
-        WithTooltip(if (locked) "Этим модом управляет FPS-буст" else if (item.enabled) "Выключить" else "Включить") {
+        WithTooltip(if (locked) tr("Этим модом управляет FPS-буст", "Managed by FPS boost") else if (item.enabled) tr("Выключить", "Disable") else tr("Включить", "Enable")) {
             JuxSwitch(item.enabled, enabled = !busy && !locked) { model.toggle(item, it) }
         }
         Spacer(Modifier.width(4.dp))
-        WithTooltip(if (locked) "Мод FPS-буста" else "Удалить") {
+        WithTooltip(if (locked) tr("Мод FPS-буста", "FPS boost mod") else tr("Удалить", "Delete")) {
             IconButton(onClick = { model.remove(item) }, enabled = !busy && !locked, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Default.Delete,
-                    "Удалить",
+                    tr("Удалить", "Delete"),
                     tint = if (!busy && !locked) JuxColors.Danger else JuxColors.TextMuted.copy(alpha = 0.5f),
                     modifier = Modifier.size(20.dp),
                 )

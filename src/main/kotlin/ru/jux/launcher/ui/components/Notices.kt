@@ -50,6 +50,7 @@ import kotlinx.coroutines.delay
 import ru.jux.launcher.core.Notice
 import ru.jux.launcher.core.NoticeAction
 import ru.jux.launcher.core.NoticeLevel
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
@@ -59,10 +60,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private val MONTHS = listOf(
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
-)
 private val TIME = DateTimeFormatter.ofPattern("HH:mm")
 
 fun noticeTone(level: NoticeLevel): Color = when (level) {
@@ -79,15 +76,15 @@ private fun noticeIcon(level: NoticeLevel): ImageVector = when (level) {
 }
 
 fun noticeActionLabel(action: NoticeAction): String = when (action) {
-    NoticeAction.LOGS -> "Логи"
-    NoticeAction.MODS -> "Моды"
-    NoticeAction.FIX_MODS -> "Исправить"
-    NoticeAction.PLAY_ANYWAY -> "Запустить всё равно"
-    NoticeAction.MORE_MEMORY -> "Добавить памяти"
-    NoticeAction.RESET_MEMORY -> "Вернуть память"
-    NoticeAction.DISABLE_MOD -> "Выключить мод"
-    NoticeAction.INSTALL_MOD -> "Поставить мод"
-    NoticeAction.VERIFY_FILES -> "Проверить файлы"
+    NoticeAction.LOGS -> tr("Логи", "Logs")
+    NoticeAction.MODS -> tr("Моды", "Mods")
+    NoticeAction.FIX_MODS -> tr("Исправить", "Fix")
+    NoticeAction.PLAY_ANYWAY -> tr("Запустить всё равно", "Play anyway")
+    NoticeAction.MORE_MEMORY -> tr("Добавить памяти", "Add memory")
+    NoticeAction.RESET_MEMORY -> tr("Вернуть память", "Reset memory")
+    NoticeAction.DISABLE_MOD -> tr("Выключить мод", "Disable mod")
+    NoticeAction.INSTALL_MOD -> tr("Поставить мод", "Install mod")
+    NoticeAction.VERIFY_FILES -> tr("Проверить файлы", "Verify files")
 }
 
 fun noticeActionIcon(action: NoticeAction): ImageVector = when (action) {
@@ -104,13 +101,15 @@ fun noticeActionIcon(action: NoticeAction): ImageVector = when (action) {
 fun formatNoticeDay(at: Long, today: LocalDate = LocalDate.now()): String {
     val day = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalDate()
     return when (day) {
-        today -> "Сегодня"
-        today.minusDays(1) -> "Вчера"
-        else -> "${day.dayOfMonth} ${MONTHS[day.monthValue - 1]}" + if (day.year != today.year) " ${day.year}" else ""
+        today -> tr("Сегодня", "Today")
+        today.minusDays(1) -> tr("Вчера", "Yesterday")
+        else -> formatDayMonth(day, long = true, today = today)
     }
 }
 
 fun formatNoticeTime(at: Long): String = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(TIME)
+
+fun formatMoment(at: Long, today: LocalDate = LocalDate.now()): String = "${formatNoticeDay(at, today)}, ${formatNoticeTime(at)}"
 
 @Composable
 fun NoticeBadge(level: NoticeLevel, size: Dp) {
@@ -197,7 +196,7 @@ private fun ToastCard(state: LauncherState, notice: Notice) {
             }
         }
         IconButton(onClick = { state.dismissToast(notice.id) }, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.Close, "Закрыть", tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Close, tr("Закрыть", "Close"), tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
         }
     }
 }

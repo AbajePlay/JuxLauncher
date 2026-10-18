@@ -12,6 +12,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.net.Http
 import java.awt.Desktop
 import java.net.URI
@@ -54,12 +55,12 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
                 .build()
                 .toString()
 
-            onStage("Открываю браузер для входа")
+            onStage(tr("Открываю браузер для входа", "Opening the browser to sign in"))
             openBrowser(url)
 
             val code = receiver.awaitCode(expectedState = state, timeoutMillis = 5 * 60_000)
 
-            onStage("Обмен кода на токен")
+            onStage(tr("Обмен кода на токен", "Exchanging the code for a token"))
             val msToken = exchangeCode(code, verifier, receiver.redirectUri)
             finish(msToken, onStage)
         }
@@ -68,7 +69,7 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
     suspend fun refresh(refreshToken: String, onStage: (String) -> Unit = {}): Account =
         withContext(Dispatchers.IO) {
             if (!AuthConfig.isConfigured) throw AuthException(AuthConfig.SETUP_HINT)
-            onStage("Обновление сессии")
+            onStage(tr("Обновление сессии", "Refreshing the session"))
             val body = FormBody.Builder()
                 .add("client_id", clientId)
                 .add("refresh_token", refreshToken)
@@ -78,25 +79,25 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
             val response = postForm(TOKEN, body)
             val parsed = Json.decodeFromString<MsTokenResponse>(response)
             if (parsed.error != null) {
-                throw AuthException("Сессия истекла, войдите заново (${parsed.error})")
+                throw AuthException(tr("Сессия истекла, войдите заново (${parsed.error})", "Session expired, sign in again (${parsed.error})"))
             }
             finish(parsed, onStage)
         }
 
     private fun finish(msToken: MsTokenResponse, onStage: (String) -> Unit): Account {
-        onStage("Вход в Xbox Live")
+        onStage(tr("Вход в Xbox Live", "Signing in to Xbox Live"))
         val (xblToken, userHash) = authenticateXbl(msToken.accessToken)
 
-        onStage("Проверка XSTS")
+        onStage(tr("Проверка XSTS", "Checking XSTS"))
         val xstsToken = authorizeXsts(xblToken)
 
-        onStage("Вход в Minecraft")
+        onStage(tr("Вход в Minecraft", "Signing in to Minecraft"))
         val mcToken = loginWithXbox(userHash, xstsToken)
 
-        onStage("Проверка лицензии")
+        onStage(tr("Проверка лицензии", "Checking the license"))
         requireOwnership(mcToken.accessToken)
 
-        onStage("Загрузка профиля")
+        onStage(tr("Загрузка профиля", "Loading the profile"))
         val profile = fetchProfile(mcToken.accessToken)
 
         return Account(
@@ -121,9 +122,9 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
             .build()
         val parsed = Json.decodeFromString<MsTokenResponse>(postForm(TOKEN, body))
         if (parsed.error != null) {
-            throw AuthException("Microsoft отклонил вход: ${parsed.errorDescription ?: parsed.error}")
+            throw AuthException(tr("Microsoft отклонил вход: ${parsed.errorDescription ?: parsed.error}", "Microsoft rejected the sign-in: ${parsed.errorDescription ?: parsed.error}"))
         }
-        if (parsed.accessToken.isBlank()) throw AuthException("Microsoft не вернул токен доступа")
+        if (parsed.accessToken.isBlank()) throw AuthException(tr("Microsoft не вернул токен доступа", "Microsoft returned no access token"))
         return parsed
     }
 
@@ -134,8 +135,8 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
         """.trimIndent()
         val parsed = Json.decodeFromString<XboxResponse>(postJson(XBL, payload))
         val hash = parsed.displayClaims?.xui?.firstOrNull()?.uhs
-            ?: throw AuthException("Xbox Live не вернул идентификатор пользователя")
-        if (parsed.token.isBlank()) throw AuthException("Xbox Live не вернул токен")
+            ?: throw AuthException(tr("Xbox Live не вернул идентификатор пользователя", "Xbox Live returned no user ID"))
+        if (parsed.token.isBlank()) throw AuthException(tr("Xbox Live не вернул токен", "Xbox Live returned no token"))
         return parsed.token to hash
     }
 
@@ -150,21 +151,25 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
             val error = runCatching { Json.decodeFromString<XboxResponse>(body) }.getOrNull()
             throw AuthException(describeXErr(error?.xErr))
         }
-        if (code !in 200..299) throw AuthException("XSTS вернул HTTP $code")
+        if (code !in 200..299) throw AuthException(tr("XSTS вернул HTTP $code", "XSTS returned HTTP $code"))
 
         val parsed = Json.decodeFromString<XboxResponse>(body)
-        if (parsed.token.isBlank()) throw AuthException("XSTS не вернул токен")
+        if (parsed.token.isBlank()) throw AuthException(tr("XSTS не вернул токен", "XSTS returned no token"))
         return parsed.token
     }
 
     private fun describeXErr(xErr: Long?): String = when (xErr) {
-        2148916233L -> "К этому аккаунту Microsoft не привязан профиль Xbox. " +
-            "Зайдите на minecraft.net под этим аккаунтом и создайте профиль."
-        2148916235L -> "Xbox Live недоступен в стране вашего аккаунта."
-        2148916236L, 2148916237L -> "Аккаунту требуется подтверждение возраста (Xbox adult verification)."
-        2148916238L -> "Детский аккаунт: добавьте его в семейную группу Microsoft."
-        2148916227L -> "Аккаунт заблокирован за нарушение правил Xbox Live."
-        else -> "Xbox Live отклонил вход" + (xErr?.let { " (код $it)" } ?: "")
+        2148916233L -> tr(
+            "К этому аккаунту Microsoft не привязан профиль Xbox. " +
+                "Зайдите на minecraft.net под этим аккаунтом и создайте профиль.",
+            "This Microsoft account has no Xbox profile. " +
+                "Sign in to minecraft.net with this account and create a profile.",
+        )
+        2148916235L -> tr("Xbox Live недоступен в стране вашего аккаунта.", "Xbox Live is not available in your account's country.")
+        2148916236L, 2148916237L -> tr("Аккаунту требуется подтверждение возраста (Xbox adult verification).", "The account needs age verification (Xbox adult verification).")
+        2148916238L -> tr("Детский аккаунт: добавьте его в семейную группу Microsoft.", "Child account: add it to a Microsoft family group.")
+        2148916227L -> tr("Аккаунт заблокирован за нарушение правил Xbox Live.", "The account is banned for breaking Xbox Live rules.")
+        else -> tr("Xbox Live отклонил вход", "Xbox Live rejected the sign-in") + (xErr?.let { tr(" (код $it)", " (code $it)") } ?: "")
     }
 
     private fun loginWithXbox(userHash: String, xstsToken: String): McLoginResponse {
@@ -172,14 +177,18 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
         val (code, body) = postJsonRaw(MC_LOGIN, payload)
         if (code == 403) {
             throw AuthException(
-                "Minecraft не пускает это приложение Azure (HTTP 403). Новое приложение нужно " +
-                    "отдельно одобрить у Mojang: заявка на aka.ms/mce-reviewappid, подробности в README."
+                tr(
+                    "Minecraft не пускает это приложение Azure (HTTP 403). Новое приложение нужно " +
+                        "отдельно одобрить у Mojang: заявка на aka.ms/mce-reviewappid, подробности в README.",
+                    "Minecraft does not allow this Azure app (HTTP 403). A new app must be " +
+                        "approved by Mojang separately: apply at aka.ms/mce-reviewappid, details in the README.",
+                )
             )
         }
-        if (code !in 200..299) throw AuthException("Minecraft отклонил вход (HTTP $code)")
+        if (code !in 200..299) throw AuthException(tr("Minecraft отклонил вход (HTTP $code)", "Minecraft rejected the sign-in (HTTP $code)"))
 
         val parsed = Json.decodeFromString<McLoginResponse>(body)
-        if (parsed.accessToken.isBlank()) throw AuthException("Minecraft не выдал сессионный токен")
+        if (parsed.accessToken.isBlank()) throw AuthException(tr("Minecraft не выдал сессионный токен", "Minecraft returned no session token"))
         return parsed
     }
 
@@ -191,8 +200,12 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
         }
         if (!owns) {
             throw AuthException(
-                "На этом аккаунте Microsoft нет лицензии Minecraft: Java Edition. " +
-                    "Если игра куплена на другом аккаунте — войдите под ним."
+                tr(
+                    "На этом аккаунте Microsoft нет лицензии Minecraft: Java Edition. " +
+                        "Если игра куплена на другом аккаунте — войдите под ним.",
+                    "This Microsoft account doesn't own Minecraft: Java Edition. " +
+                        "If the game was bought on another account, sign in with that one.",
+                )
             )
         }
     }
@@ -201,13 +214,13 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
         val (code, body) = getRaw(MC_PROFILE, mcAccessToken)
         if (code == 404) {
             throw AuthException(
-                "У аккаунта нет профиля Minecraft. Зайдите на minecraft.net и задайте никнейм."
+                tr("У аккаунта нет профиля Minecraft. Зайдите на minecraft.net и задайте никнейм.", "The account has no Minecraft profile. Go to minecraft.net and set a nickname.")
             )
         }
-        if (code !in 200..299) throw AuthException("Не удалось получить профиль (HTTP $code)")
+        if (code !in 200..299) throw AuthException(tr("Не удалось получить профиль (HTTP $code)", "Could not get the profile (HTTP $code)"))
         val profile = Json.decodeFromString<McProfile>(body)
         if (profile.id.isBlank() || profile.name.isBlank()) {
-            throw AuthException("Сервис Minecraft вернул пустой профиль")
+            throw AuthException(tr("Сервис Minecraft вернул пустой профиль", "Minecraft returned an empty profile"))
         }
         return profile
     }
@@ -216,7 +229,7 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
         Http.client.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful && response.code != 400) {
-                throw AuthException("HTTP ${response.code} от $url")
+                throw AuthException(tr("HTTP ${response.code} от $url", "HTTP ${response.code} from $url"))
             }
             return text
         }
@@ -224,7 +237,7 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
 
     private fun postJson(url: String, payload: String): String {
         val (code, body) = postJsonRaw(url, payload)
-        if (code !in 200..299) throw AuthException("HTTP $code от $url")
+        if (code !in 200..299) throw AuthException(tr("HTTP $code от $url", "HTTP $code from $url"))
         return body
     }
 
@@ -241,7 +254,7 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
 
     private fun get(url: String, bearer: String): String {
         val (code, body) = getRaw(url, bearer)
-        if (code !in 200..299) throw AuthException("HTTP $code от $url")
+        if (code !in 200..299) throw AuthException(tr("HTTP $code от $url", "HTTP $code from $url"))
         return body
     }
 
@@ -278,7 +291,7 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
         runCatching {
             ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", url).start()
         }.onFailure {
-            throw AuthException("Не удалось открыть браузер. Откройте ссылку вручную:\n$url", it)
+            throw AuthException(tr("Не удалось открыть браузер. Откройте ссылку вручную:\n$url", "Could not open the browser. Open the link manually:\n$url"), it)
         }
     }
 }

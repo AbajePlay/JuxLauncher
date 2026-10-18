@@ -1,5 +1,7 @@
 package ru.jux.launcher.ui.screens
 
+import ru.jux.launcher.core.plural
+import ru.jux.launcher.core.tr
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.TooltipPlacement
@@ -50,16 +52,16 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.delay
 import ru.jux.launcher.activity.ActivityStats
 import ru.jux.launcher.activity.PlaySession
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.components.JuxIcons
+import ru.jux.launcher.ui.components.formatDayMonth
+import ru.jux.launcher.ui.components.formatMoment
+import ru.jux.launcher.ui.components.formatMonthLabel
 import ru.jux.launcher.ui.components.Tag
 import ru.jux.launcher.ui.components.loaderColor
 import ru.jux.launcher.ui.theme.JuxColors
@@ -67,12 +69,6 @@ import ru.jux.launcher.ui.theme.JuxDimens
 import ru.jux.launcher.ui.theme.PillShape
 import ru.jux.launcher.ui.theme.softShadow
 
-private val MONTHS_SHORT = listOf("янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
-private val MONTHS_OF = listOf(
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
-)
-private val CLOCK = DateTimeFormatter.ofPattern("HH:mm")
 private val CELL = 13.dp
 private val GAP = 4.dp
 private val DAY_LABELS = 26.dp
@@ -97,7 +93,7 @@ fun ActivityScreen(state: LauncherState) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            "Активность",
+            tr("Активность", "Activity"),
             style = MaterialTheme.typography.headlineSmall,
             color = JuxColors.Text,
             modifier = Modifier.padding(horizontal = 6.dp),
@@ -130,25 +126,25 @@ fun ActivityScreen(state: LauncherState) {
 private fun StatRow(stats: ActivityStats?) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         StatCard(
-            "Всего в игре",
+            tr("Всего в игре", "Total played"),
             stats?.let { formatPlayTime(it.totalMillis) } ?: "…",
             JuxIcons.Clock,
             JuxColors.Accent,
         )
         StatCard(
-            "Эта неделя",
+            tr("Эта неделя", "This week"),
             stats?.let { formatPlayTime(it.weekMillis) } ?: "…",
             JuxIcons.Calendar,
             JuxColors.Info,
         )
         StatCard(
-            "Серия",
+            tr("Серия", "Streak"),
             stats?.let { "${it.streak} ${daysWord(it.streak)}" } ?: "…",
             JuxIcons.Flame,
             JuxColors.Warning,
         )
         StatCard(
-            "Рекорд",
+            tr("Рекорд", "Longest"),
             stats?.longest?.let { formatPlayTime(it.millis) } ?: if (stats == null) "…" else "—",
             JuxIcons.Trophy,
             JuxColors.Success,
@@ -215,13 +211,13 @@ private fun HeatmapCard(stats: ActivityStats?) {
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
-                Text("Меньше", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                Text(tr("Меньше", "Less"), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
                 Spacer(Modifier.width(8.dp))
                 (0..4).forEach { level ->
                     Box(Modifier.padding(horizontal = 2.dp).size(CELL).clip(RoundedCornerShape(3.dp)).background(levelColor(level)))
                 }
                 Spacer(Modifier.width(8.dp))
-                Text("Больше", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                Text(tr("Больше", "More"), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
             }
         }
     }
@@ -244,7 +240,7 @@ private fun Heatmap(stats: ActivityStats?) {
                     Box(Modifier.width(CELL + GAP)) {
                         if (month != previousMonth && days.first().dayOfMonth <= 7) {
                             Text(
-                                MONTHS_SHORT[month - 1],
+                                formatMonthLabel(month),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontSize = 11.sp,
                                 color = JuxColors.TextMuted,
@@ -260,7 +256,7 @@ private fun Heatmap(stats: ActivityStats?) {
             Spacer(Modifier.height(4.dp))
             Row {
                 Column(Modifier.width(DAY_LABELS), verticalArrangement = Arrangement.spacedBy(GAP)) {
-                    listOf("пн", "", "ср", "", "пт", "", "").forEach { label ->
+                    listOf(tr("пн", "Mon"), "", tr("ср", "Wed"), "", tr("пт", "Fri"), "", "").forEach { label ->
                         Box(Modifier.height(CELL), contentAlignment = Alignment.CenterStart) {
                             if (label.isNotEmpty()) {
                                 Text(
@@ -282,8 +278,8 @@ private fun Heatmap(stats: ActivityStats?) {
                                 TooltipArea(
                                     tooltip = {
                                         Text(
-                                            "${day.dayOfMonth} ${MONTHS_OF[day.monthValue - 1]} · " +
-                                                if (millis > 0) formatPlayTime(millis) else "без игры",
+                                            "${formatDayMonth(day, long = true)} · " +
+                                                if (millis > 0) formatPlayTime(millis) else tr("без игры", "no play"),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = JuxColors.Text,
                                             modifier = Modifier
@@ -319,11 +315,11 @@ private fun Heatmap(stats: ActivityStats?) {
 private fun VersionsCard(stats: ActivityStats?, modifier: Modifier) {
     Card(modifier) {
         Column {
-            CardTitle("Любимые версии", JuxIcons.Layers, JuxColors.Info)
+            CardTitle(tr("Любимые версии", "Top versions"), JuxIcons.Layers, JuxColors.Info)
             Spacer(Modifier.height(14.dp))
             val versions = stats?.versions.orEmpty()
             if (versions.isEmpty()) {
-                Text(if (stats == null) "Считаю…" else "Пока пусто", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                Text(if (stats == null) tr("Считаю…", "Counting…") else tr("Пока пусто", "Nothing yet"), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
             }
             val max = versions.maxOfOrNull { it.millis }?.coerceAtLeast(1) ?: 1
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -361,12 +357,12 @@ private fun VersionsCard(stats: ActivityStats?, modifier: Modifier) {
 private fun ServersCard(stats: ActivityStats?, modifier: Modifier) {
     Card(modifier) {
         Column {
-            CardTitle("Любимые серверы", JuxIcons.Server, JuxColors.Success)
+            CardTitle(tr("Любимые серверы", "Top servers"), JuxIcons.Server, JuxColors.Success)
             Spacer(Modifier.height(14.dp))
             val servers = stats?.servers.orEmpty()
             if (servers.isEmpty()) {
                 Text(
-                    if (stats == null) "Считаю…" else "Пока не заходил на серверы",
+                    if (stats == null) tr("Считаю…", "Counting…") else tr("Пока не заходил на серверы", "No servers joined yet"),
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.TextMuted,
                 )
@@ -408,11 +404,11 @@ private fun ServersCard(stats: ActivityStats?, modifier: Modifier) {
 private fun RecentCard(stats: ActivityStats?, rows: Int, rowHeight: Dp, modifier: Modifier) {
     Card(modifier) {
         Column {
-            CardTitle("Последние сессии", JuxIcons.History, JuxColors.Accent)
+            CardTitle(tr("Последние сессии", "Recent sessions"), JuxIcons.History, JuxColors.Accent)
             Spacer(Modifier.height(10.dp))
             val recent = stats?.recent.orEmpty().take(rows)
             if (recent.isEmpty()) {
-                Text(if (stats == null) "Считаю…" else "Пока пусто", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                Text(if (stats == null) tr("Считаю…", "Counting…") else tr("Пока пусто", "Nothing yet"), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
             }
             recent.forEach { session -> SessionRow(session, stats?.today ?: LocalDate.now(), rowHeight) }
         }
@@ -438,7 +434,7 @@ private fun SessionRow(session: PlaySession, today: LocalDate, height: Dp) {
     Row(Modifier.fillMaxWidth().height(height), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
-                whenOf(session.start, today),
+                formatMoment(session.start, today),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = JuxColors.Text,
@@ -480,36 +476,14 @@ internal fun formatPlayTime(millis: Long): String {
     val minutes = millis / 60_000
     val hours = minutes / 60
     return when {
-        minutes < 1 -> "< 1 мин"
-        hours == 0L -> "$minutes мин"
-        minutes % 60 == 0L -> "$hours ч"
-        else -> "$hours ч ${minutes % 60} мин"
+        minutes < 1 -> tr("< 1 мин", "< 1 min")
+        hours == 0L -> tr("$minutes мин", "$minutes min")
+        minutes % 60 == 0L -> tr("$hours ч", "$hours h")
+        else -> tr("$hours ч ${minutes % 60} мин", "$hours h ${minutes % 60} min")
     }
 }
 
-internal fun plural(count: Int, one: String, few: String, many: String): String {
-    val tens = count % 100
-    val ones = count % 10
-    return when {
-        tens in 11..14 -> many
-        ones == 1 -> one
-        ones in 2..4 -> few
-        else -> many
-    }
-}
-
-private fun daysWord(count: Int) = plural(count, "день", "дня", "дней")
-
-private fun dateOf(at: Long): LocalDate = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalDate()
+private fun daysWord(count: Int) = plural(count, "день", "дня", "дней", "day", "days")
 
 
-private fun whenOf(at: Long, today: LocalDate): String {
-    val date = dateOf(at)
-    val clock = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(CLOCK)
-    val day = when (date) {
-        today -> "Сегодня"
-        today.minusDays(1) -> "Вчера"
-        else -> "${date.dayOfMonth} ${MONTHS_SHORT[date.monthValue - 1]}"
-    }
-    return "$day, $clock"
-}
+

@@ -8,6 +8,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.sha1Of
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.instance.ManagedMod
 import ru.jux.launcher.net.DownloadProgress
@@ -69,7 +70,7 @@ object PerformancePack {
             return@withContext Outcome(present, options.boostMissing, offline = false, owned = options.boostOwned)
         }
 
-        onStage("FPS-буст: подбираю моды под $gameVersion")
+        onStage(tr("FPS-буст: подбираю моды под $gameVersion", "FPS boost: picking mods for $gameVersion"))
         val (candidates, missing, ownedTitles) = try {
             val owned = playersOwnProjects(modsDir, options.boostMods)
             resolve(
@@ -93,7 +94,7 @@ object PerformancePack {
 
         if (wanted.isNotEmpty()) {
             modsDir.createDirectories()
-            onStage("FPS-буст: скачиваю ${wanted.joinToString { it.first.title }}")
+            onStage(tr("FPS-буст: скачиваю ${wanted.joinToString { it.first.title }}", "FPS boost: downloading ${wanted.joinToString { it.first.title }}"))
             Downloader().run(
                 wanted.map { (mod, file) ->
                     DownloadTask(file.url, modsDir.resolve(mod.fileName), mod.sha1, file.size, label = mod.title)

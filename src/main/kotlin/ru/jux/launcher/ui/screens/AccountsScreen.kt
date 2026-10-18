@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.jux.launcher.auth.Account
 import ru.jux.launcher.auth.AuthConfig
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.SkinHead
 import ru.jux.launcher.ui.components.ButtonStyle
@@ -71,11 +72,11 @@ fun AccountsScreen(state: LauncherState) {
         if (AuthConfig.isConfigured) {
             Panel(Modifier.fillMaxWidth()) {
                 Column {
-                    SectionTitle("Лицензия")
-                    Text("Вход в браузере — пароль лаунчер не видит", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                    SectionTitle(tr("Лицензия", "Licensed"))
+                    Text(tr("Вход в браузере — пароль лаунчер не видит", "Sign in in the browser — the launcher never sees your password"), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
                     Spacer(Modifier.height(12.dp))
                     JuxButton(
-                        if (state.signingIn) state.signInStage.ifBlank { "Вход…" } else "Войти через Microsoft",
+                        if (state.signingIn) state.signInStage.ifBlank { tr("Вход…", "Signing in…") } else tr("Войти через Microsoft", "Sign in with Microsoft"),
                         style = ButtonStyle.PRIMARY,
                         enabled = !state.signingIn,
                         onClick = { state.signInMicrosoft() },
@@ -86,9 +87,9 @@ fun AccountsScreen(state: LauncherState) {
 
         Panel(Modifier.fillMaxWidth()) {
             Column {
-                SectionTitle("Офлайн")
+                SectionTitle(tr("Офлайн", "Offline"))
                 Text(
-                    "Для серверов без лицензии",
+                    tr("Для серверов без лицензии", "For servers that don't require a license"),
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.TextMuted,
                 )
@@ -103,12 +104,12 @@ fun AccountsScreen(state: LauncherState) {
                             nickname = it
                             nicknameError = null
                         },
-                        placeholder = "Никнейм",
+                        placeholder = tr("Никнейм", "Nickname"),
                         isError = nicknameError != null,
                         onSubmit = addOffline,
                         modifier = Modifier.width(240.dp),
                     )
-                    JuxButton("Добавить", onClick = addOffline, enabled = nickname.isNotBlank())
+                    JuxButton(tr("Добавить", "Add"), onClick = addOffline, enabled = nickname.isNotBlank())
                 }
                 nicknameError?.let {
                     Text(
@@ -123,10 +124,10 @@ fun AccountsScreen(state: LauncherState) {
 
         Panel(Modifier.fillMaxWidth()) {
             Column {
-                SectionTitle("Аккаунты (${accounts.size})")
+                SectionTitle(tr("Аккаунты (${accounts.size})", "Accounts (${accounts.size})"))
                 if (accounts.isEmpty()) {
                     Text(
-                        "Пока пусто",
+                        tr("Пока пусто", "Nothing yet"),
                         style = MaterialTheme.typography.bodySmall,
                         color = JuxColors.TextMuted,
                     )
@@ -186,18 +187,18 @@ private fun AccountRow(
             )
             if (!account.isOffline) {
                 Text(
-                    if (account.isExpired) "Сессия обновится при запуске" else "Сессия активна",
+                    if (account.isExpired) tr("Сессия обновится при запуске", "Session will refresh on launch") else tr("Сессия активна", "Session active"),
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.TextMuted,
                 )
             }
         }
-        if (account.isOffline) Tag("Офлайн", JuxColors.Warning) else Tag("Лицензия", JuxColors.Accent)
+        if (account.isOffline) Tag(tr("Офлайн", "Offline"), JuxColors.Warning) else Tag(tr("Лицензия", "Licensed"), JuxColors.Accent)
         if (isSelected) {
             Icon(Icons.Default.Check, null, tint = JuxColors.Accent, modifier = Modifier.size(18.dp))
         }
         IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Default.Delete, "Удалить", tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Delete, tr("Удалить", "Remove"), tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
         }
     }
 }

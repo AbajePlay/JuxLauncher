@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import kotlin.io.path.exists
 import kotlinx.coroutines.delay
 import ru.jux.launcher.core.Shortcuts
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.PerformancePack
@@ -131,9 +132,9 @@ fun HomeScreen(state: LauncherState) {
                     if (groups.isEmpty()) {
                         CenteredHint(
                             when {
-                                state.onlyInstalled && state.searchQuery.isBlank() -> "Скачанных версий пока нет"
-                                state.onlyInstalled -> "Среди скачанных такой версии нет"
-                                else -> "Ничего не найдено"
+                                state.onlyInstalled && state.searchQuery.isBlank() -> tr("Скачанных версий пока нет", "No downloaded versions yet")
+                                state.onlyInstalled -> tr("Среди скачанных такой версии нет", "No such version among downloaded")
+                                else -> tr("Ничего не найдено", "Nothing found")
                             }
                         )
                     } else {
@@ -156,7 +157,7 @@ private fun QuickPlayCard(state: LauncherState) {
         Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    listOfNotNull("К ЗАПУСКУ", entry?.pack?.let { "${entry.id} ${entry.loader.label}".uppercase() }).joinToString(" · "),
+                    listOfNotNull(tr("К ЗАПУСКУ", "READY TO PLAY"), entry?.pack?.let { "${entry.id} ${entry.loader.label}".uppercase() }).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
                     color = JuxColors.TextMuted,
                 )
@@ -166,7 +167,7 @@ private fun QuickPlayCard(state: LauncherState) {
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Text(
-                        entry?.title ?: "версия не выбрана",
+                        entry?.title ?: tr("версия не выбрана", "no version selected"),
                         style = if (entry == null || entry.pack != null) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayMedium,
                         color = if (entry == null) JuxColors.TextMuted else JuxColors.Text,
                         maxLines = 1,
@@ -230,7 +231,7 @@ private fun PlayButton(installed: Boolean, enabled: Boolean, onClick: () -> Unit
         Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(26.dp))
         Spacer(Modifier.width(10.dp))
         Text(
-            if (installed) "Играть" else "Установить и играть",
+            if (installed) tr("Играть", "Play") else tr("Установить и играть", "Install & play"),
             fontWeight = FontWeight.Black,
             fontSize = if (installed) 20.sp else 17.sp,
             maxLines = 1,
@@ -247,7 +248,7 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             val fabricReady = state.loaderSupport.supports(LoaderKind.FABRIC, entry.id)
             WithTooltip(boostHint(entry, options, fabricReady)) {
                 ChoiceChip(
-                    label = "FPS-буст",
+                    label = tr("FPS-буст", "FPS boost"),
                     selected = options.fpsBoost,
                     onClick = { state.setBoost(entry, !options.fpsBoost) },
                     enabled = fabricReady && !state.busy,
@@ -256,24 +257,24 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             }
         }
 
-        WithTooltip("Папка сборки") {
+        WithTooltip(tr("Папка сборки", "Pack folder")) {
             ChoiceChip(
-                label = "Папка",
+                label = tr("Папка", "Folder"),
                 selected = false,
                 onClick = { state.openFolder(state.gameDirOf(entry)) },
                 icon = JuxIcons.Folder,
             )
         }
 
-        WithTooltip("Миры и бэкапы") {
-            ChoiceChip(label = "Миры", selected = false, onClick = { state.showWorlds(entry) }, icon = JuxIcons.World)
+        WithTooltip(tr("Миры и бэкапы", "Worlds & backups")) {
+            ChoiceChip(label = tr("Миры", "Worlds"), selected = false, onClick = { state.showWorlds(entry) }, icon = JuxIcons.World)
         }
 
         val pack = entry.pack
         if (pack != null && pack.id in state.packUpdates) {
-            WithTooltip("Вышла ${state.packUpdates[pack.id]?.version.orEmpty()}, миры останутся".trim()) {
+            WithTooltip(tr("Вышла ${state.packUpdates[pack.id]?.version.orEmpty()}, миры останутся", "${state.packUpdates[pack.id]?.version.orEmpty()} is out, worlds stay").trim()) {
                 ChoiceChip(
-                    label = "Обновить сборку",
+                    label = tr("Обновить сборку", "Update pack"),
                     selected = true,
                     onClick = { state.updatePack(pack) },
                     enabled = !state.busy,
@@ -287,12 +288,12 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
 }
 
 private fun boostHint(entry: VersionEntry, options: InstanceOptions, fabricReady: Boolean): String = when {
-    !fabricReady -> "Fabric пока не поддерживает ${entry.id}"
+    !fabricReady -> tr("Fabric пока не поддерживает ${entry.id}", "Fabric doesn't support ${entry.id} yet")
     options.fpsBoost && (options.boostMods.isNotEmpty() || options.boostOwned.isNotEmpty()) ->
-        "Включён: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}" +
-            (if (options.boostMissing.isNotEmpty()) "\nНет для ${entry.id}: ${options.boostMissing.joinToString()}" else "")
-    options.fpsBoost -> "Включён, моды поставятся при запуске"
-    else -> "Моды: ${PerformancePack.summary}"
+        tr("Включён: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}", "On: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}") +
+            (if (options.boostMissing.isNotEmpty()) tr("\nНет для ${entry.id}: ${options.boostMissing.joinToString()}", "\nNot available for ${entry.id}: ${options.boostMissing.joinToString()}") else "")
+    options.fpsBoost -> tr("Включён, моды поставятся при запуске", "On, mods install at launch")
+    else -> tr("Моды: ${PerformancePack.summary}", "Mods: ${PerformancePack.summary}")
 }
 
 @Composable
@@ -302,7 +303,7 @@ private fun EntryMenuButton(state: LauncherState, entry: VersionEntry) {
     ReportOpen(open, state::trackMenu)
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.MoreVert, "Действия со сборкой", tint = JuxColors.TextMuted, modifier = Modifier.size(20.dp))
+            Icon(Icons.Default.MoreVert, tr("Действия со сборкой", "Pack actions"), tint = JuxColors.TextMuted, modifier = Modifier.size(20.dp))
         }
         JuxDropdownMenu(expanded = open, onDismissRequest = close) {
             EntryMenuItems(state, entry, close, fromList = false)
@@ -316,49 +317,49 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
     val hasFolder = remember(entry, state.instanceRevision) { state.gameDirOf(entry).exists() }
 
     if (fromList) {
-        JuxMenuItem("Играть", icon = Icons.Default.PlayArrow, enabled = !state.busy, onClick = {
+        JuxMenuItem(tr("Играть", "Play"), icon = Icons.Default.PlayArrow, enabled = !state.busy, onClick = {
             close()
             state.selectEntry(entry)
             state.play()
         })
-        JuxMenuItem("Открыть папку", icon = JuxIcons.Folder, onClick = {
+        JuxMenuItem(tr("Открыть папку", "Open folder"), icon = JuxIcons.Folder, onClick = {
             close()
             state.openFolder(state.gameDirOf(entry))
         })
     }
-    JuxMenuItem("Миры и бэкапы…", icon = JuxIcons.World, onClick = {
+    JuxMenuItem(tr("Миры и бэкапы…", "Worlds & backups…"), icon = JuxIcons.World, onClick = {
         close()
         state.showWorlds(entry)
     })
-    JuxMenuItem("Логи", icon = JuxIcons.Log, onClick = {
+    JuxMenuItem(tr("Логи", "Logs"), icon = JuxIcons.Log, onClick = {
         close()
         state.showLogs(entry)
     })
-    JuxMenuItem("Ярлык на рабочем столе", icon = JuxIcons.OpenInNew, enabled = Shortcuts.isAvailable, onClick = {
+    JuxMenuItem(tr("Ярлык на рабочем столе", "Desktop shortcut"), icon = JuxIcons.OpenInNew, enabled = Shortcuts.isAvailable, onClick = {
         close()
         state.createShortcut(entry)
     })
-    JuxMenuItem("Перенести из версии…", icon = JuxIcons.MoveIn, enabled = !state.busy, onClick = {
+    JuxMenuItem(tr("Перенести из версии…", "Copy from version…"), icon = JuxIcons.MoveIn, enabled = !state.busy, onClick = {
         close()
         state.offerCarryInto(entry)
     })
-    JuxMenuItem("Сделать копию…", icon = JuxIcons.Copy, enabled = !state.busy, onClick = {
+    JuxMenuItem(tr("Сделать копию…", "Duplicate…"), icon = JuxIcons.Copy, enabled = !state.busy, onClick = {
         close()
         state.modal = Modal.PackEditor(PackMode.Copy(entry))
     })
     entry.pack?.let { pack ->
-        JuxMenuItem("Название и иконка…", icon = Icons.Default.Edit, onClick = {
+        JuxMenuItem(tr("Название и иконка…", "Name & icon…"), icon = Icons.Default.Edit, onClick = {
             close()
             state.modal = Modal.PackEditor(PackMode.Edit(pack))
         })
     }
     MenuDivider()
-    JuxMenuItem("Переустановить", icon = Icons.Default.Refresh, enabled = (installed || entry.pack != null) && !state.busy, onClick = {
+    JuxMenuItem(tr("Переустановить", "Reinstall"), icon = Icons.Default.Refresh, enabled = (installed || entry.pack != null) && !state.busy, onClick = {
         close()
         state.reinstall(entry)
     })
     JuxMenuItem(
-        "Удалить…",
+        tr("Удалить…", "Delete…"),
         icon = Icons.Default.Delete,
         danger = true,
         enabled = (installed || hasFolder) && !(state.busy && state.busyEntry == entry),
@@ -374,7 +375,7 @@ private fun ProgressArea(state: LauncherState) {
     val progress = state.progress
     Column(Modifier.width(320.dp)) {
         Text(
-            state.stage.ifBlank { "Готовлюсь" },
+            state.stage.ifBlank { tr("Готовлюсь", "Preparing") },
             style = MaterialTheme.typography.bodySmall,
             color = JuxColors.Text,
             maxLines = 1,
@@ -392,7 +393,7 @@ private fun ProgressArea(state: LauncherState) {
                 modifier = Modifier.weight(1f),
             )
             Text(
-                "Отмена",
+                tr("Отмена", "Cancel"),
                 style = MaterialTheme.typography.labelLarge,
                 color = JuxColors.TextMuted,
                 modifier = Modifier
@@ -407,10 +408,10 @@ private fun ProgressArea(state: LauncherState) {
 private fun progressDetails(progress: DownloadProgress?): String = when {
     progress == null -> ""
     progress.totalBytes > 0 -> buildString {
-        append(formatBytes(progress.completedBytes)).append(" из ").append(formatBytes(progress.totalBytes))
+        append(formatBytes(progress.completedBytes)).append(tr(" из ", " of ")).append(formatBytes(progress.totalBytes))
         formatSpeed(progress.bytesPerSecond).takeIf { it.isNotEmpty() }?.let { append(" · ").append(it) }
     }
-    progress.totalFiles > 0 -> "${progress.completedFiles} из ${progress.totalFiles} файлов"
+    progress.totalFiles > 0 -> tr("${progress.completedFiles} из ${progress.totalFiles} файлов", "${progress.completedFiles} of ${progress.totalFiles} files")
     else -> ""
 }
 
@@ -453,25 +454,25 @@ private fun ListHeader(state: LauncherState) {
         SearchField(
             value = state.searchQuery,
             onValueChange = { state.searchQuery = it },
-            placeholder = "Поиск версии",
+            placeholder = tr("Поиск версии", "Search versions"),
             modifier = Modifier.weight(1f),
             focusRequester = state.searchFocus,
             onFocusChange = { state.searchFocused = it },
         )
-        WithTooltip(if (state.onlyInstalled) "Все версии" else "Только скачанные") {
+        WithTooltip(if (state.onlyInstalled) tr("Все версии", "All versions") else tr("Только скачанные", "Downloaded only")) {
             ChoiceChip(
-                label = "Скачанные",
+                label = tr("Скачанные", "Downloaded"),
                 selected = state.onlyInstalled,
                 onClick = state::toggleOnlyInstalled,
                 icon = JuxIcons.Download,
             )
         }
-        WithTooltip("Новая сборка") {
+        WithTooltip(tr("Новая сборка", "New pack")) {
             IconButton(
                 onClick = { state.modal = Modal.PackEditor(PackMode.Create) },
                 modifier = Modifier.size(38.dp).clip(CircleShape).background(JuxColors.SurfaceHigh),
             ) {
-                Icon(Icons.Default.Add, "Новая сборка", tint = JuxColors.Text, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Add, tr("Новая сборка", "New pack"), tint = JuxColors.Text, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -653,7 +654,7 @@ private fun ServersPanel(state: LauncherState, modifier: Modifier) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "СЕРВЕРЫ",
+                    tr("СЕРВЕРЫ", "SERVERS"),
                     style = MaterialTheme.typography.labelSmall,
                     color = JuxColors.TextMuted,
                     modifier = Modifier.weight(1f),
@@ -662,7 +663,7 @@ private fun ServersPanel(state: LauncherState, modifier: Modifier) {
                     onClick = { state.refreshServers() },
                     modifier = Modifier.size(32.dp).clip(CircleShape).background(JuxColors.SurfaceHigh),
                 ) {
-                    Icon(Icons.Default.Refresh, "Обновить", tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Refresh, tr("Обновить", "Refresh"), tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -685,18 +686,18 @@ private fun ServerRow(state: LauncherState, server: ServerEntry) {
     ContextMenuBox(
         onOpenChange = state::trackMenu,
         menu = { close ->
-            JuxMenuItem("Играть", icon = Icons.Default.PlayArrow, enabled = !state.busy, onClick = {
+            JuxMenuItem(tr("Играть", "Play"), icon = Icons.Default.PlayArrow, enabled = !state.busy, onClick = {
                 close()
                 state.playOnServer(server)
             })
-            JuxMenuItem("Копировать адрес", icon = JuxIcons.Copy, onClick = {
+            JuxMenuItem(tr("Копировать адрес", "Copy address"), icon = JuxIcons.Copy, onClick = {
                 close()
                 runCatching { clipboard.setText(AnnotatedString(server.address)) }
-                    .onFailure { state.fail("Буфер обмена занят — адрес не скопирован") }
+                    .onFailure { state.fail(tr("Буфер обмена занят — адрес не скопирован", "Clipboard is busy — address not copied")) }
             })
         },
     ) {
-        WithTooltip(online?.let { listOf(it.motd, "Сервер: ${it.versionName}").filter(String::isNotBlank).joinToString("\n") }) {
+        WithTooltip(online?.let { listOf(it.motd, tr("Сервер: ${it.versionName}", "Server: ${it.versionName}")).filter(String::isNotBlank).joinToString("\n") }) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -726,7 +727,7 @@ private fun ServerRow(state: LauncherState, server: ServerEntry) {
                 ) {
                     Icon(
                         Icons.Default.PlayArrow,
-                        "Играть на сервере",
+                        tr("Играть на сервере", "Play on server"),
                         tint = if (state.busy) JuxColors.TextMuted else JuxColors.Accent,
                         modifier = Modifier.size(20.dp),
                     )
@@ -740,8 +741,8 @@ private fun ServerRow(state: LauncherState, server: ServerEntry) {
 private fun StatusLine(ping: PingState?) {
     val (dot, text) = when (ping) {
         is PingState.Online -> JuxColors.Success to "${ping.status.playersOnline}/${ping.status.playersMax}"
-        PingState.Offline -> JuxColors.Danger to "не отвечает"
-        else -> JuxColors.TextMuted to "проверяю…"
+        PingState.Offline -> JuxColors.Danger to tr("не отвечает", "offline")
+        else -> JuxColors.TextMuted to tr("проверяю…", "checking…")
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(dot))

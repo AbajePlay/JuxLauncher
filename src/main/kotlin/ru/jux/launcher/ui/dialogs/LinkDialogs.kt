@@ -39,6 +39,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ru.jux.launcher.core.Shell
+import ru.jux.launcher.core.plural
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.mods.ContentKind
 import ru.jux.launcher.mods.Modrinth
@@ -54,7 +56,6 @@ import ru.jux.launcher.ui.components.JuxIcons
 import ru.jux.launcher.ui.components.Tag
 import ru.jux.launcher.ui.components.WithTooltip
 import ru.jux.launcher.ui.components.loaderColor
-import ru.jux.launcher.ui.screens.plural
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 
@@ -65,16 +66,16 @@ internal fun JoinDialog(state: LauncherState, modal: Modal.Join) {
     val close = { state.modal = null }
 
     JuxDialog(
-        title = "Играть на ${link.title}",
+        title = tr("Играть на ${link.title}", "Play on ${link.title}"),
         subtitle = listOfNotNull(link.address.takeIf { link.name != null }, link.range?.let { "Minecraft $it" })
             .joinToString(" · ")
             .ifEmpty { null },
         onDismiss = close,
         width = 520.dp,
         actions = {
-            JuxButton("Отмена", onClick = close)
+            JuxButton(tr("Отмена", "Cancel"), onClick = close)
             JuxButton(
-                "Играть",
+                tr("Играть", "Play"),
                 icon = Icons.Default.PlayArrow,
                 style = ButtonStyle.PRIMARY,
                 enabled = choice != null && !state.busy && !state.gameRunning,
@@ -83,21 +84,21 @@ internal fun JoinDialog(state: LauncherState, modal: Modal.Join) {
         },
     ) {
         if (modal.choices.isEmpty()) {
-            Hint(modal.note ?: "Нет версий — проверь интернет", JuxColors.Danger)
+            Hint(modal.note ?: tr("Нет версий — проверь интернет", "No versions, check your connection"), JuxColors.Danger)
             return@JuxDialog
         }
-        EntryChoices(state, "Сборка", modal.choices, choice) { choice = it }
+        EntryChoices(state, tr("Сборка", "Pack"), modal.choices, choice) { choice = it }
         Spacer(Modifier.height(14.dp))
         when {
-            state.gameRunning -> Hint("Закрой игру, чтобы зайти на сервер", JuxColors.Warning)
+            state.gameRunning -> Hint(tr("Закрой игру, чтобы зайти на сервер", "Close the game to join the server"), JuxColors.Warning)
             state.busy -> Hint(busyText(state), JuxColors.Warning)
             modal.note != null -> Hint(modal.note, JuxColors.Warning)
             link.version != null && choice?.let { link.accepts(it.id) } == false -> Hint(
-                if (link.minVersion != null) "Сервер на ${link.range}, сборка на ${choice?.id} — может не пустить"
-                else "Сервер на ${link.version}, сборка на ${choice?.id} — может не пустить",
+                if (link.minVersion != null) tr("Сервер на ${link.range}, сборка на ${choice?.id} — может не пустить", "Server runs ${link.range}, pack is ${choice?.id}: may not connect")
+                else tr("Сервер на ${link.version}, сборка на ${choice?.id} — может не пустить", "Server runs ${link.version}, pack is ${choice?.id}: may not connect"),
                 JuxColors.Warning,
             )
-            else -> Hint("Игра сразу зайдёт на сервер")
+            else -> Hint(tr("Игра сразу зайдёт на сервер", "The game will join the server right away"))
         }
     }
 }
@@ -115,34 +116,34 @@ internal fun InstallDialog(state: LauncherState, modal: Modal.Install) {
 
     JuxDialog(
         title = when (link.content) {
-            LinkContent.DATAPACK -> "Датапак $title"
-            LinkContent.MODPACK -> "Установить сборку $title"
-            else -> "Установить $title"
+            LinkContent.DATAPACK -> tr("Датапак $title", "Datapack $title")
+            LinkContent.MODPACK -> tr("Установить сборку $title", "Install pack $title")
+            else -> tr("Установить $title", "Install $title")
         },
-        subtitle = listOfNotNull("${kindLabel(link.content)} с Modrinth", project?.let(::loadersOf)).joinToString(" · "),
+        subtitle = listOfNotNull(tr("${kindLabel(link.content)} с Modrinth", "${kindLabel(link.content)} from Modrinth"), project?.let(::loadersOf)).joinToString(" · "),
         onDismiss = close,
         width = 560.dp,
         actions = {
             when {
                 link.content == LinkContent.DATAPACK || plan is InstallPlan.Failed -> {
-                    JuxButton("Закрыть", onClick = close)
-                    JuxButton("Открыть на Modrinth", icon = JuxIcons.OpenInNew, style = ButtonStyle.PRIMARY, onClick = {
+                    JuxButton(tr("Закрыть", "Close"), onClick = close)
+                    JuxButton(tr("Открыть на Modrinth", "Open on Modrinth"), icon = JuxIcons.OpenInNew, style = ButtonStyle.PRIMARY, onClick = {
                         modrinth()
                         close()
                     })
                 }
                 plan is InstallPlan.Pack && plan.installed != null -> {
-                    JuxButton("Отмена", onClick = close)
-                    JuxButton("Играть", icon = Icons.Default.PlayArrow, style = ButtonStyle.PRIMARY, enabled = !state.busy, onClick = {
+                    JuxButton(tr("Отмена", "Cancel"), onClick = close)
+                    JuxButton(tr("Играть", "Play"), icon = Icons.Default.PlayArrow, style = ButtonStyle.PRIMARY, enabled = !state.busy, onClick = {
                         close()
                         state.selectEntry(state.entryFor(plan.installed))
                         state.play()
                     })
                 }
                 else -> {
-                    JuxButton("Отмена", onClick = close)
+                    JuxButton(tr("Отмена", "Cancel"), onClick = close)
                     JuxButton(
-                        "Установить",
+                        tr("Установить", "Install"),
                         icon = JuxIcons.Download,
                         style = ButtonStyle.PRIMARY,
                         enabled = !state.busy && (plan is InstallPlan.Pack || (plan is InstallPlan.Content && choice != null)),
@@ -160,37 +161,37 @@ internal fun InstallDialog(state: LauncherState, modal: Modal.Install) {
     ) {
         if (link.content == LinkContent.DATAPACK) {
             Hint(
-                "Датапак ставится в мир: скачай его на Modrinth и положи в папку datapacks мира",
+                tr("Датапак ставится в мир: скачай его на Modrinth и положи в папку datapacks мира", "Datapacks go into a world: download it on Modrinth and put it in the world's datapacks folder"),
                 JuxColors.Text,
             )
             return@JuxDialog
         }
         when (plan) {
-            null -> Hint("Ищу $title на Modrinth…")
+            null -> Hint(tr("Ищу $title на Modrinth…", "Looking for $title on Modrinth…"))
             is InstallPlan.Failed -> Hint(plan.message, JuxColors.Danger)
             is InstallPlan.Pack -> {
                 ProjectCard(plan.project, modrinth)
                 Spacer(Modifier.height(14.dp))
                 Hint(
-                    if (plan.installed != null) "Уже установлена: ${plan.installed.title} ${plan.installed.version}"
-                    else "Поставится в отдельную папку",
+                    if (plan.installed != null) tr("Уже установлена: ${plan.installed.title} ${plan.installed.version}", "Already installed: ${plan.installed.title} ${plan.installed.version}")
+                    else tr("Поставится в отдельную папку", "Installs into its own folder"),
                 )
             }
             is InstallPlan.Content -> {
                 ProjectCard(plan.project, modrinth)
                 Spacer(Modifier.height(16.dp))
-                EntryChoices(state, "Куда поставить", plan.targets, choice) { choice = it }
+                EntryChoices(state, tr("Куда поставить", "Install to"), plan.targets, choice) { choice = it }
                 Spacer(Modifier.height(14.dp))
                 when {
                     state.busy -> Hint(busyText(state), JuxColors.Warning)
                     plan.unfit > 0 -> Hint(
-                        "Ещё ${plan.unfit} ${plural(plan.unfit, "сборка не подходит", "сборки не подходят", "сборок не подходят")}",
+                        tr("Ещё ", "") + "${plan.unfit} ${plural(plan.unfit, "сборка не подходит", "сборки не подходят", "сборок не подходят", "more pack doesn't fit", "more packs don't fit")}",
                     )
                     else -> Hint(
                         when (plan.kind) {
-                            ContentKind.MOD -> "Нужные ему моды поставятся сами"
-                            ContentKind.SHADER -> "Iris поставится сам"
-                            ContentKind.RESOURCE_PACK -> "Сразу включится в игре"
+                            ContentKind.MOD -> tr("Нужные ему моды поставятся сами", "Required mods install automatically")
+                            ContentKind.SHADER -> tr("Iris поставится сам", "Iris installs automatically")
+                            ContentKind.RESOURCE_PACK -> tr("Сразу включится в игре", "Enabled in game right away")
                         },
                     )
                 }
@@ -219,9 +220,9 @@ private fun ProjectCard(project: Modrinth.Project, onOpen: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        WithTooltip("Открыть на Modrinth") {
+        WithTooltip(tr("Открыть на Modrinth", "Open on Modrinth")) {
             IconButton(onClick = onOpen, modifier = Modifier.size(36.dp)) {
-                Icon(JuxIcons.OpenInNew, "Открыть на Modrinth", tint = JuxColors.TextMuted, modifier = Modifier.size(18.dp))
+                Icon(JuxIcons.OpenInNew, tr("Открыть на Modrinth", "Open on Modrinth"), tint = JuxColors.TextMuted, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -300,9 +301,9 @@ private fun EntryChoice(state: LauncherState, entry: VersionEntry, selected: Boo
         }
         Text(
             when {
-                entry.pack != null -> "сборка"
-                installed -> "установлена"
-                else -> "новая"
+                entry.pack != null -> tr("сборка", "pack")
+                installed -> tr("установлена", "installed")
+                else -> tr("новая", "new")
             },
             style = MaterialTheme.typography.bodySmall,
             color = JuxColors.TextMuted,
@@ -316,12 +317,13 @@ private fun Hint(text: String, color: Color = JuxColors.TextMuted) {
 }
 
 private fun busyText(state: LauncherState): String =
-    "Дождись загрузки ${state.busyEntry?.label.orEmpty()}".trimEnd()
+    state.busyEntry?.label?.let { tr("Дождись загрузки $it", "Wait for $it to download") }
+        ?: tr("Дождись загрузки", "Wait for the download")
 
 private fun kindLabel(content: LinkContent): String = when (content) {
-    LinkContent.MOD -> "Мод"
-    LinkContent.SHADER -> "Шейдер"
-    LinkContent.RESOURCE_PACK -> "Ресурспак"
-    LinkContent.DATAPACK -> "Датапак"
-    LinkContent.MODPACK -> "Сборка"
+    LinkContent.MOD -> tr("Мод", "Mod")
+    LinkContent.SHADER -> tr("Шейдер", "Shader")
+    LinkContent.RESOURCE_PACK -> tr("Ресурспак", "Resource pack")
+    LinkContent.DATAPACK -> tr("Датапак", "Datapack")
+    LinkContent.MODPACK -> tr("Сборка", "Modpack")
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.mods.Modrinth
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.ui.CatalogSearch
@@ -70,16 +71,16 @@ fun ListBox(modifier: Modifier = Modifier, content: @Composable (LazyListState) 
 fun SearchResults(search: CatalogSearch, listState: LazyListState, row: @Composable (Modrinth.SearchHit) -> Unit) {
     val hits = search.hits
     when {
-        hits.isEmpty() && search.searching -> ListHint("Ищу на Modrinth…")
-        hits.isEmpty() && search.failed -> ListHint("Нет связи с Modrinth", "Повторить") { search.run() }
-        hits.isEmpty() -> ListHint("Ничего не нашлось")
+        hits.isEmpty() && search.searching -> ListHint(tr("Ищу на Modrinth…", "Searching Modrinth…"))
+        hits.isEmpty() && search.failed -> ListHint(tr("Нет связи с Modrinth", "Can't reach Modrinth"), tr("Повторить", "Retry")) { search.run() }
+        hits.isEmpty() -> ListHint(tr("Ничего не нашлось", "Nothing found"))
         else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(hits, key = { it.projectId }) { row(it) }
             item {
                 Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
                     when {
-                        search.searching -> Text("Загружаю…", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
-                        search.hasMore -> JuxButton("Показать ещё", onClick = { search.run(more = true) })
+                        search.searching -> Text(tr("Загружаю…", "Loading…"), style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                        search.hasMore -> JuxButton(tr("Показать ещё", "Show more"), onClick = { search.run(more = true) })
                     }
                 }
             }
@@ -119,7 +120,7 @@ fun ContentRow(
                 if (badge != null) Tag(badge, JuxColors.Accent)
                 if (onOpen != null) {
                     IconButton(onClick = onOpen, modifier = Modifier.size(24.dp)) {
-                        Icon(JuxIcons.OpenInNew, "Открыть на Modrinth", tint = JuxColors.TextMuted, modifier = Modifier.size(14.dp))
+                        Icon(JuxIcons.OpenInNew, tr("Открыть на Modrinth", "Open on Modrinth"), tint = JuxColors.TextMuted, modifier = Modifier.size(14.dp))
                     }
                 }
             }
@@ -168,7 +169,7 @@ fun StatusStrip(progress: DownloadProgress?, error: String?, message: String?) {
         when {
             progress != null -> {
                 Text(
-                    "Скачиваю ${progress.currentFile}".trimEnd() +
+                    tr("Скачиваю ${progress.currentFile}", "Downloading ${progress.currentFile}").trimEnd() +
                         if (progress.totalFiles > 1) " · ${progress.completedFiles}/${progress.totalFiles}" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.Text,

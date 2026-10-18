@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Storage
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.instance.WorldBackup
 import ru.jux.launcher.instance.WorldInfo
 import ru.jux.launcher.instance.Worlds
@@ -55,7 +56,7 @@ import ru.jux.launcher.ui.components.ThinProgress
 import ru.jux.launcher.ui.components.WithTooltip
 import ru.jux.launcher.ui.components.formatBytes
 import ru.jux.launcher.ui.components.formatNoticeDay
-import ru.jux.launcher.ui.components.formatNoticeTime
+import ru.jux.launcher.ui.components.formatMoment
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 
@@ -79,14 +80,14 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
     val close = { state.modal = null }
 
     JuxDialog(
-        title = "Миры и бэкапы",
+        title = tr("Миры и бэкапы", "Worlds & backups"),
         subtitle = entry.label,
         onDismiss = close,
         width = 720.dp,
         actions = {
-            JuxButton("Импорт мира…", icon = JuxIcons.Upload, enabled = !locked, onClick = { state.importWorld(entry) })
-            JuxButton("Папка бэкапов", icon = JuxIcons.Folder, onClick = { state.openFolder(Worlds.backupsDir(dir)) })
-            JuxButton("Готово", style = ButtonStyle.PRIMARY, onClick = close)
+            JuxButton(tr("Импорт мира…", "Import world…"), icon = JuxIcons.Upload, enabled = !locked, onClick = { state.importWorld(entry) })
+            JuxButton(tr("Папка бэкапов", "Backups folder"), icon = JuxIcons.Folder, onClick = { state.openFolder(Worlds.backupsDir(dir)) })
+            JuxButton(tr("Готово", "Done"), style = ButtonStyle.PRIMARY, onClick = close)
         },
     ) {
         Box(
@@ -101,8 +102,8 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
             val onRestore = { backup: WorldBackup -> confirm = Confirm.Restore(backup) }
             val onDeleteBackup = { backup: WorldBackup -> state.deleteBackup(entry, backup) }
             when {
-                loaded == null -> Hint("Ищу миры…")
-                loaded.worlds.isEmpty() && deleted.isEmpty() -> Hint("Миров пока нет")
+                loaded == null -> Hint(tr("Ищу миры…", "Looking for worlds…"))
+                loaded.worlds.isEmpty() && deleted.isEmpty() -> Hint(tr("Миров пока нет", "No worlds yet"))
                 else -> Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
                     loaded.worlds.forEach { world ->
                         WorldCard(
@@ -114,15 +115,15 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
                             onRestore = onRestore,
                             onDeleteBackup = onDeleteBackup,
                         ) {
-                            JuxButton("Бэкап", icon = JuxIcons.Backup, enabled = !locked, onClick = { state.backupWorld(entry, world) })
-                            IconAction("Открыть папку мира", JuxIcons.Folder) { state.openFolder(Worlds.savesDir(dir).resolve(world.folder)) }
-                            IconAction("Удалить мир", Icons.Default.Delete, enabled = !locked) { confirm = Confirm.DeleteWorld(world) }
+                            JuxButton(tr("Бэкап", "Backup"), icon = JuxIcons.Backup, enabled = !locked, onClick = { state.backupWorld(entry, world) })
+                            IconAction(tr("Открыть папку мира", "Open world folder"), JuxIcons.Folder) { state.openFolder(Worlds.savesDir(dir).resolve(world.folder)) }
+                            IconAction(tr("Удалить мир", "Delete world"), Icons.Default.Delete, enabled = !locked) { confirm = Confirm.DeleteWorld(world) }
                         }
                     }
                     deleted.forEach { (folder, backups) ->
                         WorldCard(
                             name = folder,
-                            details = "Удалён — можно вернуть из бэкапа",
+                            details = tr("Удалён — можно вернуть из бэкапа", "Deleted, can be restored from a backup"),
                             icon = null,
                             backups = backups,
                             locked = locked,
@@ -135,22 +136,22 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
         }
         if (working) {
             Spacer(Modifier.height(12.dp))
-            Text(state.stage.ifBlank { "Работаю…" }, style = MaterialTheme.typography.bodySmall, color = JuxColors.Text)
+            Text(state.stage.ifBlank { tr("Работаю…", "Working…") }, style = MaterialTheme.typography.bodySmall, color = JuxColors.Text)
             Spacer(Modifier.height(6.dp))
             ThinProgress(state.progress?.fraction ?: 0f)
         } else if (state.gameRunning) {
             Spacer(Modifier.height(10.dp))
-            Text("Закрой игру, чтобы работать с мирами", style = MaterialTheme.typography.bodySmall, color = JuxColors.Warning)
+            Text(tr("Закрой игру, чтобы работать с мирами", "Close the game to manage worlds"), style = MaterialTheme.typography.bodySmall, color = JuxColors.Warning)
         }
         confirm?.let { pending ->
             ConfirmStrip(
                 text = when (pending) {
-                    is Confirm.DeleteWorld -> "Удалить мир «${pending.world.name}»? " +
-                        if (Storage.trashAvailable) "Уйдёт в корзину." else "Вернуть можно только из бэкапа."
-                    is Confirm.Restore -> "Вернуть «${pending.backup.world}» к бэкапу от ${dateOf(pending.backup.createdAt)}? " +
-                        "Текущий мир сохранится в бэкап."
+                    is Confirm.DeleteWorld -> tr("Удалить мир «${pending.world.name}»? ", "Delete world “${pending.world.name}”? ") +
+                        if (Storage.trashAvailable) tr("Уйдёт в корзину.", "It goes to the Recycle Bin.") else tr("Вернуть можно только из бэкапа.", "Only a backup can bring it back.")
+                    is Confirm.Restore -> tr("Вернуть «${pending.backup.world}» к бэкапу от ${formatMoment(pending.backup.createdAt)}? ", "Restore “${pending.backup.world}” to the backup from ${formatMoment(pending.backup.createdAt)}? ") +
+                        tr("Текущий мир сохранится в бэкап.", "The current world is backed up first.")
                 },
-                action = if (pending is Confirm.DeleteWorld) "Удалить" else "Вернуть",
+                action = if (pending is Confirm.DeleteWorld) tr("Удалить", "Delete") else tr("Вернуть", "Restore"),
                 danger = pending is Confirm.DeleteWorld,
                 onCancel = { confirm = null },
                 onConfirm = {
@@ -207,14 +208,14 @@ private fun WorldCard(
             ) {
                 Icon(JuxIcons.History, null, tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
                 Text(
-                    "${dateOf(backup.createdAt)} · ${formatBytes(backup.bytes)}",
+                    "${formatMoment(backup.createdAt)} · ${formatBytes(backup.bytes)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.Text,
                     modifier = Modifier.weight(1f),
                 )
-                if (backup.auto) Tag("авто", JuxColors.Info)
+                if (backup.auto) Tag(tr("авто", "auto"), JuxColors.Info)
                 Text(
-                    "Вернуть",
+                    tr("Вернуть", "Restore"),
                     style = MaterialTheme.typography.labelLarge,
                     color = if (locked) JuxColors.TextMuted else JuxColors.Accent,
                     modifier = Modifier
@@ -223,7 +224,7 @@ private fun WorldCard(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
                 IconButton(onClick = { onDeleteBackup(backup) }, enabled = !locked, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Delete, "Удалить бэкап", tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Delete, tr("Удалить бэкап", "Delete backup"), tint = JuxColors.TextMuted, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -243,7 +244,7 @@ private fun detailsOf(world: WorldInfo): String = listOfNotNull(
     world.mode,
     world.level.gameVersion,
     formatBytes(world.bytes),
-    world.level.lastPlayed.takeIf { it > 0 }?.let { "играли ${formatNoticeDay(it).lowercase()}" },
+    world.level.lastPlayed.takeIf { it > 0 }?.let { tr("играли ${formatNoticeDay(it).lowercase()}", "played ${formatNoticeDay(it).lowercase()}") },
 ).joinToString(" · ")
 
 @Composable
@@ -253,4 +254,3 @@ private fun Hint(text: String) {
     }
 }
 
-private fun dateOf(at: Long): String = "${formatNoticeDay(at)}, ${formatNoticeTime(at)}"

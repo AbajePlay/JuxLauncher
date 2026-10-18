@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDialog
@@ -74,8 +75,8 @@ fun ColorPickerDialog(title: String, initial: Int, onDismiss: () -> Unit, onPick
         onDismiss = onDismiss,
         width = 420.dp,
         actions = {
-            JuxButton("Отмена", onClick = onDismiss)
-            JuxButton("Готово", style = ButtonStyle.PRIMARY, onClick = { onPick(hsv.rgb) })
+            JuxButton(tr("Отмена", "Cancel"), onClick = onDismiss)
+            JuxButton(tr("Готово", "Done"), style = ButtonStyle.PRIMARY, onClick = { onPick(hsv.rgb) })
         },
     ) {
         SaturationValue(hsv) { saturation, value -> pick(Hsv(hsv.hue, saturation, value)) }

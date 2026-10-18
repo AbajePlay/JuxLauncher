@@ -15,7 +15,7 @@ object Shortcuts {
 
     fun createOnDesktop(title: String, versionId: String, loader: LoaderKind, pack: String? = null): Path {
         val exe = Shell.appExecutable
-            ?: throw IOException("Ярлыки создаются только в установленном лаунчере, не при запуске из IDE")
+            ?: throw IOException(tr("Ярлыки создаются только в установленном лаунчере, не при запуске из IDE", "Shortcuts work only in the installed launcher, not when run from an IDE"))
         val link = desktop().resolve(title.replace(ILLEGAL, "_").trim() + ".lnk")
         create(link, exe, PlayArguments.of(versionId, loader, pack), "JuxLauncher: $title")
         Log.info("desktop shortcut created: $link")
@@ -37,7 +37,7 @@ object Shortcuts {
 
         val exit = Shell.runHidden(Shell.powershell(script), waitMs = 20_000)
         if (exit != 0 || !link.exists()) {
-            throw IOException("Не удалось создать ярлык (код ${exit ?: "нет"})")
+            throw IOException(tr("Не удалось создать ярлык (код ${exit ?: "нет"})", "Could not create the shortcut (code ${exit ?: "none"})"))
         }
     }
 

@@ -25,7 +25,7 @@ object Shell {
     fun openFolder(dir: Path, onError: (String) -> Unit) {
         runCatching { dir.createDirectories() }
             .onFailure {
-                onError("Не удалось создать папку $dir: ${it.message}")
+                onError(tr("Не удалось создать папку $dir: ${it.message}", "Could not create the folder $dir: ${it.message}"))
                 return
             }
 
@@ -45,7 +45,7 @@ object Shell {
             true
         }.onFailure { Log.warn("Desktop.open failed: ${it.message}") }.getOrDefault(false)
 
-        if (!viaDesktop) onError("Не удалось открыть проводник. Папка: $dir")
+        if (!viaDesktop) onError(tr("Не удалось открыть проводник. Папка: $dir", "Could not open Explorer. Folder: $dir"))
     }
 
     fun browse(url: String): Boolean {

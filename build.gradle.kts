@@ -35,6 +35,7 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     systemProperty("user.home", temporaryDir.absolutePath)
+    systemProperty("user.language", "ru")
 }
 
 compose.desktop {

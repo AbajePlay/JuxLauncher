@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.launch.GameLauncher
 import ru.jux.launcher.net.Http
 import java.io.IOException
@@ -21,10 +22,13 @@ import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 
-enum class LogSource(val label: String) {
-    GAME("Игра"),
-    CRASH("Крэш-репорт"),
-    LAUNCHER("Лаунчер"),
+enum class LogSource(private val ru: String, private val en: String) {
+    GAME("Игра", "Game"),
+    CRASH("Крэш-репорт", "Crash report"),
+    LAUNCHER("Лаунчер", "Launcher"),
+    ;
+
+    val label: String get() = tr(ru, en)
 }
 
 object GameLogs {
@@ -105,7 +109,7 @@ object GameLogs {
         val answer = Json.parseToJsonElement(json).jsonObject
         val url = answer["url"]?.jsonPrimitive?.contentOrNull
         if (answer["success"]?.jsonPrimitive?.booleanOrNull != true || url.isNullOrBlank()) {
-            throw IOException(answer["error"]?.jsonPrimitive?.contentOrNull ?: "mclo.gs не принял лог")
+            throw IOException(answer["error"]?.jsonPrimitive?.contentOrNull ?: tr("mclo.gs не принял лог", "mclo.gs rejected the log"))
         }
         return url
     }

@@ -30,6 +30,7 @@ import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.SingleInstance
 import ru.jux.launcher.core.UrlProtocol
 import ru.jux.launcher.core.VerifyCache
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.discord.Presence
 import ru.jux.launcher.link.LaunchLink
@@ -51,7 +52,7 @@ fun main(args: Array<String>) {
 
         var preloaded by remember { mutableStateOf<PreloadResult?>(null) }
         var fraction by remember { mutableStateOf(0f) }
-        var status by remember { mutableStateOf("Запускаюсь") }
+        var status by remember { mutableStateOf(tr("Запускаюсь", "Starting")) }
 
         LaunchedEffect(Unit) {
             preloaded = Preloader.run { value, text ->
@@ -189,7 +190,7 @@ private fun bootstrap(args: Array<String>): SingleInstance {
         SingleInstance.Role.UNREACHABLE -> {
             JOptionPane.showMessageDialog(
                 null,
-                "JuxLauncher завис.\nЗакрой его в диспетчере задач и запусти снова.",
+                tr("JuxLauncher завис.\nЗакрой его в диспетчере задач и запусти снова.", "JuxLauncher is not responding.\nClose it in Task Manager and start it again."),
                 "JuxLauncher",
                 JOptionPane.WARNING_MESSAGE,
             )

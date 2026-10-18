@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.jux.launcher.core.NoticeLevel
 import ru.jux.launcher.core.Settings
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.launch.ArgumentBuilder
 import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.ui.components.BackdropLayer
@@ -163,17 +164,17 @@ private fun NavRail(state: LauncherState) {
         val unread = notices.filter { it.id > seen }
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            NavItem("Играть", Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
-            NavItem("Каталог", JuxIcons.Extension, state.screen == Screen.CATALOG) { state.openCatalog() }
-            NavItem("Активность", JuxIcons.Activity, state.screen == Screen.ACTIVITY) { state.screen = Screen.ACTIVITY }
+            NavItem(tr("Играть", "Play"), Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
+            NavItem(tr("Каталог", "Catalog"), JuxIcons.Extension, state.screen == Screen.CATALOG) { state.openCatalog() }
+            NavItem(tr("Активность", "Activity"), JuxIcons.Activity, state.screen == Screen.ACTIVITY) { state.screen = Screen.ACTIVITY }
             NavItem(
-                "Уведомления",
+                tr("Уведомления", "Notifications"),
                 Icons.Default.Notifications,
                 state.screen == Screen.NOTICES,
                 badge = unread.size,
                 badgeAlert = unread.any { it.level == NoticeLevel.ERROR },
             ) { state.openNotices() }
-            NavItem("Настройки", Icons.Default.Settings, state.screen == Screen.SETTINGS) { state.screen = Screen.SETTINGS }
+            NavItem(tr("Настройки", "Settings"), Icons.Default.Settings, state.screen == Screen.SETTINGS) { state.screen = Screen.SETTINGS }
         }
 
         Spacer(Modifier.weight(1f))
@@ -306,7 +307,7 @@ private fun OnlineLine() {
         )
         Spacer(Modifier.width(6.dp))
         Text(
-            "онлайн",
+            tr("онлайн", "online"),
             color = JuxColors.TextSoft,
             style = TextStyle(
                 fontSize = 13.sp,
@@ -355,7 +356,7 @@ private fun AccountSwitcher(state: LauncherState) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    account?.name ?: "Добавить аккаунт",
+                    account?.name ?: tr("Добавить аккаунт", "Add account"),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = if (onAccounts) JuxColors.Accent else JuxColors.Text,
@@ -363,7 +364,7 @@ private fun AccountSwitcher(state: LauncherState) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    account?.type?.label ?: "нужен, чтобы играть",
+                    account?.type?.label ?: tr("нужен, чтобы играть", "needed to play"),
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.TextMuted,
                 )
@@ -400,7 +401,7 @@ private fun AccountSwitcher(state: LauncherState) {
                 )
             }
             MenuDivider()
-            JuxMenuItem("Управление аккаунтами", icon = Icons.Default.Person, onClick = {
+            JuxMenuItem(tr("Управление аккаунтами", "Manage accounts"), icon = Icons.Default.Person, onClick = {
                 close()
                 state.screen = Screen.ACCOUNTS
             })
@@ -419,11 +420,11 @@ private fun VersionPill(state: LauncherState) {
         else -> null
     }
     val text = when {
-        current is UpdateState.Available -> "Обновить до ${current.update.version}"
+        current is UpdateState.Available -> tr("Обновить до ${current.update.version}", "Update to ${current.update.version}")
         current is UpdateState.Downloading ->
             listOf("${(current.fraction * 100).toInt()}%", formatSpeed(current.bytesPerSecond)).filter { it.isNotEmpty() }.joinToString(" · ")
-        current is UpdateState.Installing -> "Устанавливаю ${current.update.version}"
-        retry != null -> "Не обновилось · ещё раз"
+        current is UpdateState.Installing -> tr("Устанавливаю ${current.update.version}", "Installing ${current.update.version}")
+        retry != null -> tr("Не обновилось · ещё раз", "Update failed · retry")
         else -> "v${ArgumentBuilder.LAUNCHER_VERSION}"
     }
     val onClick: (() -> Unit)? = when {
@@ -438,7 +439,7 @@ private fun VersionPill(state: LauncherState) {
         else -> JuxColors.SurfaceHigh to JuxColors.TextMuted
     }
     val hint = when {
-        current is UpdateState.Available -> "Скачать и установить ${current.update.version}"
+        current is UpdateState.Available -> tr("Скачать и установить ${current.update.version}", "Download and install ${current.update.version}")
         current is UpdateState.Failed -> current.message
         else -> null
     }

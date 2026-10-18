@@ -9,6 +9,7 @@ import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Storage
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderRepository
@@ -48,7 +49,7 @@ object LoaderInstaller {
     ): String = withContext(Dispatchers.IO) {
         if (kind == LoaderKind.VANILLA) return@withContext gameVersion
 
-        if (pinned == null) onStage("Ищу последнюю сборку ${kind.label}")
+        if (pinned == null) onStage(tr("Ищу последнюю сборку ${kind.label}", "Looking for the latest ${kind.label} build"))
         val loaderVersion = pinned ?: LoaderRepository.latestBuild(kind, gameVersion)
         if (loaderVersion == null) {
             installedProfile(kind, gameVersion)?.let {
@@ -56,8 +57,12 @@ object LoaderInstaller {
                 return@withContext it
             }
             throw IOException(
-                "${kind.label} для $gameVersion не найден — " +
-                    "ещё не вышел или нет связи"
+                tr(
+                    "${kind.label} для $gameVersion не найден — " +
+                        "ещё не вышел или нет связи",
+                    "${kind.label} for $gameVersion not found — " +
+                        "not released yet or no connection",
+                )
             )
         }
         Log.info("${kind.label} build chosen for $gameVersion: $loaderVersion")
@@ -89,11 +94,11 @@ object LoaderInstaller {
                 return it
             }
 
-        onStage("Скачиваю OptiFine $edition")
+        onStage(tr("Скачиваю OptiFine $edition", "Downloading OptiFine $edition"))
         val build = OptiFineRepository.build(gameVersion, edition)
         val installerJar = Paths.cache.resolve("installers").resolve(build.file)
         val base = Json.decodeFromString<VersionJson>(Paths.versionJson(gameVersion).readText())
-        val client = base.downloads?.client ?: throw IOException("У $gameVersion нет файла игры для OptiFine")
+        val client = base.downloads?.client ?: throw IOException(tr("У $gameVersion нет файла игры для OptiFine", "$gameVersion has no game file for OptiFine"))
         Downloader().run(
             listOf(
                 DownloadTask(OptiFineRepository.downloadUrl(build), installerJar, label = build.file),
@@ -110,7 +115,7 @@ object LoaderInstaller {
         Files.copy(Paths.versionJar(gameVersion), stagedVersion.resolve("$gameVersion.jar"))
         minecraft.resolve("launcher_profiles.json").writeText("""{"profiles":{}}""")
 
-        onStage("Устанавливаю OptiFine $edition")
+        onStage(tr("Устанавливаю OptiFine $edition", "Installing OptiFine $edition"))
         runJava(
             javaExecutable(),
             listOf("-Djava.awt.headless=true", "-cp", installerJar.toAbsolutePath().toString(), "optifine.Installer"),
@@ -121,7 +126,7 @@ object LoaderInstaller {
 
         val profile = minecraft.resolve("versions").listDirectoryEntries()
             .firstOrNull { LoaderKind.OPTIFINE.ownsProfile(it.name, gameVersion) && it.resolve("${it.name}.json").exists() }
-            ?: throw IOException("OptiFine не установился — подробности в логе лаунчера")
+            ?: throw IOException(tr("OptiFine не установился — подробности в логе лаунчера", "OptiFine did not install — see the launcher log"))
         val id = profile.name
         Paths.versionDir(id).createDirectories()
         Files.copy(profile.resolve("$id.json"), Paths.versionJson(id), StandardCopyOption.REPLACE_EXISTING)
@@ -147,13 +152,13 @@ object LoaderInstaller {
                 return it
             }
 
-        onStage("Получаю профиль ${kind.label} $loaderVersion")
+        onStage(tr("Получаю профиль ${kind.label} $loaderVersion", "Getting the ${kind.label} $loaderVersion profile"))
         val url = LoaderRepository.profileUrl(kind, gameVersion, loaderVersion)
         val text = Http.getString(url)
 
         val parsed = Json.decodeFromString<VersionJson>(text)
         val id = parsed.id.ifBlank {
-            throw IOException("${kind.label} вернул профиль без id")
+            throw IOException(tr("${kind.label} вернул профиль без id", "${kind.label} returned a profile without an id"))
         }
 
         Paths.versionJson(id).writeAtomically(text)
@@ -176,7 +181,7 @@ object LoaderInstaller {
                 return it
             }
 
-        onStage("Скачиваю установщик ${kind.label} $loaderVersion")
+        onStage(tr("Скачиваю установщик ${kind.label} $loaderVersion", "Downloading the ${kind.label} $loaderVersion installer"))
         val url = LoaderRepository.installerUrl(kind, gameVersion, loaderVersion)
         val installerDir = Paths.cache.resolve("installers").also { it.createDirectories() }
         val installerJar = installerDir.resolve(url.substringAfterLast('/'))
@@ -185,17 +190,17 @@ object LoaderInstaller {
             listOf(DownloadTask(url = url, dest = installerJar, label = installerJar.fileName.toString())),
             onProgress,
         )
-        if (!installerJar.exists()) throw IOException("Установщик ${kind.label} не скачался")
+        if (!installerJar.exists()) throw IOException(tr("Установщик ${kind.label} не скачался", "The ${kind.label} installer did not download"))
 
         val legacy = LegacyForge.read(installerJar)
         val id = if (legacy != null) {
-            onStage("Устанавливаю ${kind.label}")
+            onStage(tr("Устанавливаю ${kind.label}", "Installing ${kind.label}"))
             LegacyForge.install(legacy, installerJar)
         } else {
             ensureLauncherProfilesStub()
 
             val java = javaExecutable()
-            onStage("Устанавливаю ${kind.label}")
+            onStage(tr("Устанавливаю ${kind.label}", "Installing ${kind.label}"))
             runJava(
                 java,
                 listOf("-jar", installerJar.toAbsolutePath().toString(), "--installClient", Paths.root.toAbsolutePath().toString()),
@@ -205,8 +210,12 @@ object LoaderInstaller {
 
             locateInstalledProfile(kind, gameVersion, loaderVersion)
                 ?: throw IOException(
-                    "${kind.label} отработал, но профиль не найден в ${Paths.versions}. " +
-                        "Подробности в логе лаунчера."
+                    tr(
+                        "${kind.label} отработал, но профиль не найден в ${Paths.versions}. " +
+                            "Подробности в логе лаунчера.",
+                        "${kind.label} finished, but no profile was found in ${Paths.versions}. " +
+                            "See the launcher log.",
+                    )
                 )
         }
         Paths.versionDir(id).resolve(INSTALLED_MARKER).writeText("")
@@ -240,7 +249,7 @@ object LoaderInstaller {
             while (!process.waitFor(250, TimeUnit.MILLISECONDS)) {
                 currentCoroutineContext().ensureActive()
                 if (System.nanoTime() > deadline) {
-                    throw IOException("Установщик не завершился за $INSTALLER_TIMEOUT_MINUTES минут")
+                    throw IOException(tr("Установщик не завершился за $INSTALLER_TIMEOUT_MINUTES минут", "The installer did not finish in $INSTALLER_TIMEOUT_MINUTES minutes"))
                 }
             }
         } finally {
@@ -253,7 +262,7 @@ object LoaderInstaller {
 
         val exit = process.exitValue()
         if (exit != 0) {
-            throw IOException("Установщик завершился с кодом $exit\n" + lines.takeLast(6).joinToString("\n"))
+            throw IOException(tr("Установщик завершился с кодом $exit\n", "The installer exited with code $exit\n") + lines.takeLast(6).joinToString("\n"))
         }
     }
 

@@ -49,8 +49,12 @@ object Storage {
             .getOrDefault(false)
         if (!trashed) {
             throw IOException(
-                "Папка занята другой программой — " +
-                    "закрой её и попробуй ещё раз"
+                tr(
+                    "Папка занята другой программой — " +
+                        "закрой её и попробуй ещё раз",
+                    "The folder is in use by another program — " +
+                        "close it and try again",
+                )
             )
         }
         return true

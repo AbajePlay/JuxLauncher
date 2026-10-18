@@ -11,6 +11,7 @@ import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.PrettyJson
 import ru.jux.launcher.core.Settings
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.launch.GameLauncher
@@ -111,7 +112,7 @@ object Modpacks {
     fun iconOf(pack: Modpack): Path = dirOf(pack).resolve(ICON)
 
     fun create(title: String, gameVersion: String, loader: LoaderKind, loaderVersion: String? = null, copyFrom: Path? = null): Modpack {
-        val name = title.trim().ifEmpty { throw IOException("Дай сборке название") }
+        val name = title.trim().ifEmpty { throw IOException(tr("Дай сборке название", "Give the pack a name")) }
         val id = freeFolder(name)
         val dir = Settings.packsDir().resolve(id)
         if (copyFrom != null && copyFrom.isDirectory()) copyContent(copyFrom, dir)
@@ -122,12 +123,12 @@ object Modpacks {
     }
 
     fun rename(pack: Modpack, title: String): Modpack {
-        val name = title.trim().ifEmpty { throw IOException("Название не может быть пустым") }
+        val name = title.trim().ifEmpty { throw IOException(tr("Название не может быть пустым", "The name can't be empty")) }
         return pack.copy(title = name).also(::save)
     }
 
     fun setIcon(pack: Modpack, image: Path) {
-        if (Files.size(image) > MAX_ICON_BYTES) throw IOException("Картинка больше 2 МБ — выбери поменьше")
+        if (Files.size(image) > MAX_ICON_BYTES) throw IOException(tr("Картинка больше 2 МБ — выбери поменьше", "The image is over 2 MB — pick a smaller one"))
         Files.copy(image, iconOf(pack), StandardCopyOption.REPLACE_EXISTING)
     }
 
@@ -164,7 +165,7 @@ object Modpacks {
     suspend fun source(projectId: String, slug: String, title: String, iconUrl: String?): PackSource = withContext(Dispatchers.IO) {
         val versions = Modrinth.versions(projectId).filter { version -> version.files.any { it.filename.endsWith(ARCHIVE) } }
         val version = Modrinth.pick(versions) ?: versions.firstOrNull()
-            ?: throw IOException("У сборки $title нет файлов для скачивания")
+            ?: throw IOException(tr("У сборки $title нет файлов для скачивания", "The pack $title has no files to download"))
         sourceOf(version, folderFor(slug, projectId), projectId, title, iconUrl)
     }
 
@@ -189,22 +190,22 @@ object Modpacks {
     ): Modpack = withContext(Dispatchers.IO) {
         val dir = Settings.packsDir().resolve(source.id)
         val previous = read(dir)
-        onStage("Скачиваю сборку ${source.title}")
+        onStage(tr("Скачиваю сборку ${source.title}", "Downloading the pack ${source.title}"))
         val archive = fetch(source, onProgress)
         ZipFile(archive.toFile()).use { zip ->
             val index = readIndex(zip)
             val gameVersion = index.dependencies["minecraft"]?.takeIf { it.isNotBlank() }
-                ?: throw IOException("В сборке ${source.title} не указана версия Minecraft")
+                ?: throw IOException(tr("В сборке ${source.title} не указана версия Minecraft", "The pack ${source.title} has no Minecraft version"))
             val (loader, loaderVersion) = loaderOf(index.dependencies)
             val downloads = downloadsOf(index, allowed)
             if (downloads.isNotEmpty()) {
-                onStage("Скачиваю моды сборки ${source.title}")
+                onStage(tr("Скачиваю моды сборки ${source.title}", "Downloading mods for ${source.title}"))
                 Downloader().run(
                     downloads.map { DownloadTask(it.urls.first(), dir.resolve(it.path), it.sha1, it.size, it.urls.drop(1)) },
                     onProgress,
                 )
             }
-            onStage("Распаковываю настройки сборки")
+            onStage(tr("Распаковываю настройки сборки", "Extracting the pack settings"))
             extractOverrides(zip, dir, keep = if (previous != null) KEPT_ON_UPDATE else emptySet())
             val paths = downloads.map { it.path }
             previous?.files.orEmpty().filter { it !in paths }.mapNotNull(::safePath)
@@ -229,20 +230,20 @@ object Modpacks {
     }
 
     internal fun readIndex(zip: ZipFile): PackIndex {
-        val entry = zip.getEntry(INDEX) ?: throw IOException("Это не сборка Modrinth: нет $INDEX")
+        val entry = zip.getEntry(INDEX) ?: throw IOException(tr("Это не сборка Modrinth: нет $INDEX", "This is not a Modrinth pack: no $INDEX"))
         val index = Json.decodeFromString<PackIndex>(zip.getInputStream(entry).readBytes().decodeToString())
         if (index.formatVersion != 1 || index.game != "minecraft") {
-            throw IOException("Сборка в незнакомом формате (${index.game} ${index.formatVersion})")
+            throw IOException(tr("Сборка в незнакомом формате (${index.game} ${index.formatVersion})", "The pack is in an unknown format (${index.game} ${index.formatVersion})"))
         }
         return index
     }
 
     internal fun downloadsOf(index: PackIndex, allowed: (String) -> Boolean): List<PackDownload> =
         index.files.filter { it.env["client"] != "unsupported" }.map { file ->
-            val path = safePath(file.path) ?: throw IOException("В сборке недопустимый путь: ${file.path}")
-            val sha1 = file.hashes["sha1"] ?: throw IOException("У файла $path нет контрольной суммы")
+            val path = safePath(file.path) ?: throw IOException(tr("В сборке недопустимый путь: ${file.path}", "The pack has an invalid path: ${file.path}"))
+            val sha1 = file.hashes["sha1"] ?: throw IOException(tr("У файла $path нет контрольной суммы", "The file $path has no checksum"))
             val urls = file.downloads.filter(allowed)
-            if (urls.isEmpty()) throw IOException("Файл $path скачивается с непроверенного сайта")
+            if (urls.isEmpty()) throw IOException(tr("Файл $path скачивается с непроверенного сайта", "The file $path comes from an unverified site"))
             PackDownload(path, urls, sha1, file.fileSize)
         }
 
@@ -287,14 +288,14 @@ object Modpacks {
         val archive = Paths.cache.resolve("packs").resolve(source.id + ARCHIVE)
         if (source.sha1 == null) archive.deleteIfExists()
         Downloader().run(listOf(DownloadTask(source.url, archive, source.sha1, source.size, label = source.title + ARCHIVE)), onProgress)
-        if (!archive.exists()) throw IOException("Сборка ${source.title} не скачалась")
+        if (!archive.exists()) throw IOException(tr("Сборка ${source.title} не скачалась", "The pack ${source.title} did not download"))
         return archive
     }
 
     private fun sourceOf(version: Modrinth.Version, id: String, projectId: String, title: String, iconUrl: String?): PackSource {
         val file = version.files.firstOrNull { it.primary && it.filename.endsWith(ARCHIVE) }
             ?: version.files.firstOrNull { it.filename.endsWith(ARCHIVE) }
-            ?: throw IOException("У сборки $title нет файла $ARCHIVE")
+            ?: throw IOException(tr("У сборки $title нет файла $ARCHIVE", "The pack $title has no $ARCHIVE file"))
         return PackSource(id, title, projectId, version.id, version.versionNumber, file.url, file.sha1, file.size, iconUrl)
     }
 }

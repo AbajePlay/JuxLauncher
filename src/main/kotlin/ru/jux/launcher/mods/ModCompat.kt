@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import ru.jux.launcher.core.Json
+import ru.jux.launcher.core.tr
 import java.io.IOException
 import java.nio.file.Path
 import java.util.zip.ZipFile
@@ -24,7 +25,7 @@ data class ModMeta(
 }
 
 data class Conflict(val mod: ModMeta, val other: ModMeta) {
-    val text: String get() = "${mod.name} ${mod.shortVersion} несовместим с ${other.name} ${other.shortVersion}"
+    val text: String get() = tr("${mod.name} ${mod.shortVersion} несовместим с ${other.name} ${other.shortVersion}", "${mod.name} ${mod.shortVersion} is incompatible with ${other.name} ${other.shortVersion}")
 }
 
 class IncompatibleModException(val conflicts: List<Conflict>, outcome: String) :

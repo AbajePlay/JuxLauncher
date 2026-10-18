@@ -16,6 +16,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.plural
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.online.JuxSite
 import java.io.IOException
 
@@ -37,7 +39,7 @@ object DiscordPresence {
 
     const val APP_ID = "1553784416487346326"
 
-    const val DOWNLOAD_LABEL = "Скачать"
+    val DOWNLOAD_LABEL: String get() = tr("Скачать", "Download")
     const val PAGE_URL = "${JuxSite.ORIGIN}/launcher/"
     const val SITE_URL = "${JuxSite.ORIGIN}/"
     private const val ART = "https://raw.githubusercontent.com/AbajePlay/JuxLauncher/main/branding/presence"
@@ -104,11 +106,11 @@ object DiscordPresence {
     internal fun activity(presence: Presence): JsonObject = buildJsonObject {
         when (presence) {
             Presence.Launcher -> {
-                put("details", "В лаунчере")
-                put("state", "Выбирает, во что поиграть")
+                put("details", tr("В лаунчере", "In the launcher"))
+                put("state", tr("Выбирает, во что поиграть", "Choosing what to play"))
                 putJsonObject("assets") {
                     put("large_image", LOGO)
-                    put("large_text", "JuxLauncher — лаунчер Minecraft")
+                    put("large_text", tr("JuxLauncher — лаунчер Minecraft", "JuxLauncher — Minecraft launcher"))
                     put("large_url", SITE_URL)
                 }
             }
@@ -118,7 +120,7 @@ object DiscordPresence {
                 putJsonObject("timestamps") { put("start", presence.startedAt / 1000) }
                 putJsonObject("assets") {
                     put("large_image", LOGO)
-                    put("large_text", "Minecraft ${presence.versionId} через JuxLauncher")
+                    put("large_text", tr("Minecraft ${presence.versionId} через JuxLauncher", "Minecraft ${presence.versionId} via JuxLauncher"))
                     put("large_url", SITE_URL)
                     if (presence.server != null && presence.serverIcon != null) {
                         put("small_image", presence.serverIcon)
@@ -141,20 +143,11 @@ object DiscordPresence {
             .take(128)
 
     private fun stateOf(playing: Presence.Playing): String = when {
-        playing.server != null -> "Сервер: ${playing.server}".take(128)
+        playing.server != null -> tr("Сервер: ${playing.server}", "Server: ${playing.server}").take(128)
         playing.mods > 0 -> "${playing.mods} ${modsWord(playing.mods)}"
-        playing.loaderLabel != null -> "Без модов"
-        else -> "Ванильная игра"
+        playing.loaderLabel != null -> tr("Без модов", "No mods")
+        else -> tr("Ванильная игра", "Vanilla")
     }
 
-    internal fun modsWord(count: Int): String {
-        val tens = count % 100
-        val ones = count % 10
-        return when {
-            tens in 11..14 -> "модов"
-            ones == 1 -> "мод"
-            ones in 2..4 -> "мода"
-            else -> "модов"
-        }
-    }
+    internal fun modsWord(count: Int): String = plural(count, "мод", "мода", "модов", "mod", "mods")
 }

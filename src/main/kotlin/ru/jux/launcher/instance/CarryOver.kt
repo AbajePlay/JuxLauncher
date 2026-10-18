@@ -6,6 +6,7 @@ import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.Storage
+import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.launch.GameLauncher
 import ru.jux.launcher.mods.GameOptions
@@ -166,14 +167,14 @@ object CarryOver {
         val options = plan.options && source.options && runCatching { carryOptions(source.dir, target) }
             .onFailure {
                 Log.warn("carry-over: options from ${source.dir} failed: ${it.message}")
-                failed += "настройки"
+                failed += tr("настройки", "settings")
             }
             .isSuccess
         val servers = if (plan.servers) {
             runCatching { ServerList.merge(source.dir, target) }
                 .onFailure {
                     Log.warn("carry-over: servers from ${source.dir} failed: ${it.message}")
-                    failed += "список серверов"
+                    failed += tr("список серверов", "server list")
                 }
                 .getOrDefault(0)
         } else {

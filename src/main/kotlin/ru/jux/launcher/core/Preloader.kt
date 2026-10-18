@@ -40,18 +40,19 @@ object Preloader {
     suspend fun run(onStep: (Float, String) -> Unit): PreloadResult {
         val startedAt = System.currentTimeMillis()
 
-        val opening = "Запускаюсь"
-        onStep(0.05f, opening)
+        // Язык известен только после Settings.load(), поэтому текст берётся заново на каждом шаге
+        fun opening() = tr("Запускаюсь", "Starting")
+        onStep(0.05f, opening())
         withContext(Dispatchers.IO) { runCatching { Paths.ensureBaseDirs() } }
-        onStep(0.15f, opening)
+        onStep(0.15f, opening())
         withContext(Dispatchers.IO) { runCatching { Settings.load() } }
-        onStep(0.25f, opening)
+        onStep(0.25f, opening())
         withContext(Dispatchers.IO) { runCatching { AccountManager.load() } }
         withContext(Dispatchers.IO) { runCatching { Notices.load() } }
-        onStep(0.40f, opening)
+        onStep(0.40f, opening())
         withContext(Dispatchers.IO) { runCatching { VerifyCache.load() } }
 
-        onStep(0.50f, "Спрашиваю Mojang, что нового")
+        onStep(0.50f, tr("Спрашиваю Mojang, что нового", "Asking Mojang what's new"))
         val cachedManifest = withContext(Dispatchers.IO) { VersionManifestRepository.loadCached() }
         val manifest = cachedManifest ?: withContext(Dispatchers.IO) {
             runCatching { VersionManifestRepository.load() }.getOrElse { failure ->
@@ -61,7 +62,7 @@ object Preloader {
         }
         val manifestStale = cachedManifest != null && !VersionManifestRepository.isFresh()
 
-        val loaders = "Подтягиваю загрузчики модов"
+        val loaders = tr("Подтягиваю загрузчики модов", "Fetching mod loaders")
         onStep(0.70f, loaders)
         val cachedSupport = withContext(Dispatchers.IO) { readSupportCache() }
         val loaderSupport = cachedSupport?.support ?: fetchLoaderSupport()

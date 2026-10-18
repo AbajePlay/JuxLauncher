@@ -8,6 +8,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -249,6 +250,8 @@ fun JuxTheme(content: @Composable () -> Unit) {
             onError = JuxColors.Background,
         ),
         typography = JuxTypography,
-        content = content,
-    )
+    ) {
+        // Тексты берут язык из настроек напрямую, поэтому при смене языка пересоздаём всё дерево
+        key(settings.language) { content() }
+    }
 }
