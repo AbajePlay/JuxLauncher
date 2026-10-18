@@ -9,6 +9,7 @@ import ru.jux.launcher.net.Http
 
 enum class LoaderKind(val label: String) {
     VANILLA("Vanilla"),
+    OPTIFINE("OptiFine"),
     FABRIC("Fabric"),
     QUILT("Quilt"),
     FORGE("Forge"),
@@ -16,12 +17,15 @@ enum class LoaderKind(val label: String) {
 
     val isModded: Boolean get() = this != VANILLA
 
+    val hasMods: Boolean get() = this == FABRIC || this == QUILT || this == FORGE || this == NEOFORGE
+
     val supportsBoost: Boolean get() = this == VANILLA || this == FABRIC
 
     val installsWithJava: Boolean get() = this == FORGE || this == NEOFORGE
 
     fun ownsProfile(id: String, gameVersion: String): Boolean = when (this) {
         VANILLA -> id == gameVersion
+        OPTIFINE -> id.startsWith("$gameVersion-OptiFine_") || id.startsWith("$gameVersion.0-OptiFine_")
         FABRIC -> id.startsWith("fabric-loader-") && id.endsWith("-$gameVersion")
         QUILT -> id.startsWith("quilt-loader-") && id.endsWith("-$gameVersion")
         FORGE -> id.startsWith("$gameVersion-forge", ignoreCase = true)
@@ -49,6 +53,7 @@ data class LoaderSupport(
     val quilt: Set<String> = emptySet(),
     val forge: Set<String> = emptySet(),
     val neoforge: Set<String> = emptySet(),
+    val optifine: Set<String> = emptySet(),
 ) {
     fun supports(kind: LoaderKind, gameVersion: String): Boolean = when (kind) {
         LoaderKind.VANILLA -> true
@@ -56,12 +61,13 @@ data class LoaderSupport(
         LoaderKind.QUILT -> gameVersion in quilt
         LoaderKind.FORGE -> gameVersion in forge
         LoaderKind.NEOFORGE -> gameVersion in neoforge
+        LoaderKind.OPTIFINE -> gameVersion in optifine
     }
 
     fun loadersFor(gameVersion: String): List<LoaderKind> =
         LoaderKind.entries.filter { supports(it, gameVersion) }
 
-    val isEmpty: Boolean get() = fabric.isEmpty() && quilt.isEmpty() && forge.isEmpty() && neoforge.isEmpty()
+    val isEmpty: Boolean get() = fabric.isEmpty() && quilt.isEmpty() && forge.isEmpty() && neoforge.isEmpty() && optifine.isEmpty()
 }
 
 object LoaderRepository {
@@ -86,6 +92,7 @@ object LoaderRepository {
                 LoaderKind.QUILT -> fabricLike("$QUILT_META/versions/loader/$gameVersion")
                 LoaderKind.FORGE -> forge(gameVersion)
                 LoaderKind.NEOFORGE -> neoForge(gameVersion)
+                LoaderKind.OPTIFINE -> optiFine(gameVersion)
                 LoaderKind.VANILLA -> emptyList()
             }
         }.onFailure { Log.warn("loader list failed for $key: ${it.message}") }.getOrDefault(emptyList())
@@ -114,6 +121,7 @@ object LoaderRepository {
                     LoaderKind.NEOFORGE -> mavenVersions("$NEOFORGE_MAVEN/maven-metadata.xml")
                         .mapNotNull { neoForgeGameVersion(it) }
                         .toSet()
+                    LoaderKind.OPTIFINE -> OptiFineRepository.builds().map { it.gameVersion }.toSet()
                     LoaderKind.VANILLA -> emptySet()
                 }
             }
@@ -191,6 +199,12 @@ object LoaderRepository {
     }
 
     internal fun forgeInstallable(gameVersion: String): Boolean = compareNumbers(gameVersion, "1.7.10") >= 0
+
+    private fun optiFine(gameVersion: String): List<LoaderVersion> {
+        val builds = OptiFineRepository.buildsFor(gameVersion)
+        val newestStable = builds.firstOrNull { !it.preview }
+        return builds.map { LoaderVersion(it.edition, stable = !it.preview, recommended = it == newestStable) }
+    }
 
     private fun neoForge(gameVersion: String): List<LoaderVersion> =
         neoForgeBuilds(gameVersion, mavenVersions("$NEOFORGE_MAVEN/maven-metadata.xml"))

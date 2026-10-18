@@ -172,11 +172,11 @@ object GameLauncher {
         val boost = PerformancePack.sync(gameDir, versionId, onStage, onProgress)
         when {
             !boost.active && boost.offline ->
-                onNotice("FPS-буст не установился: нет связи с Modrinth. Игра запущена без него.")
+                onNotice("FPS-буст пропущен: нет связи с Modrinth")
             !boost.active ->
-                onNotice("Для $versionId модов FPS-буста пока нет. Игра запущена без него.")
+                onNotice("Для $versionId FPS-буста пока нет")
             boost.missing.isNotEmpty() ->
-                onNotice("FPS-буст без ${boost.missing.joinToString()}: для $versionId они ещё не вышли.")
+                onNotice("FPS-буст без ${boost.missing.joinToString()}: для $versionId их нет")
         }
         return if (boost.active) LoaderKind.FABRIC else loader
     }
@@ -195,8 +195,8 @@ object GameLauncher {
         JavaManager.findLocal(major)?.let { return it }
 
         throw IOException(
-            "Не удалось получить Java $major для этой версии. " +
-                "Проверьте интернет или установите JDK $major вручную."
+            "Не скачалась Java $major — " +
+                "проверь интернет или поставь JDK $major"
         )
     }
 

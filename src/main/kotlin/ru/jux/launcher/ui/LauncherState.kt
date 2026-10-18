@@ -15,7 +15,9 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import java.io.IOException
+import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.getLastModifiedTime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +32,7 @@ import ru.jux.launcher.activity.ActivityStats
 import ru.jux.launcher.activity.PlayHistory
 import ru.jux.launcher.auth.Account
 import ru.jux.launcher.auth.AccountManager
+import ru.jux.launcher.core.Backdrop
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Notice
 import ru.jux.launcher.core.NoticeAction
@@ -39,6 +42,7 @@ import ru.jux.launcher.core.PlayRequest
 import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.core.Settings
+import ru.jux.launcher.core.SettingsDefaults
 import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.Storage
@@ -53,10 +57,14 @@ import ru.jux.launcher.instance.CarryResult
 import ru.jux.launcher.instance.CarrySource
 import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.instance.InstanceStore
+import ru.jux.launcher.instance.WorldBackup
+import ru.jux.launcher.instance.WorldInfo
+import ru.jux.launcher.instance.Worlds
 import ru.jux.launcher.launch.GameLauncher
 import ru.jux.launcher.link.LaunchLink
 import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.logs.CrashHints
+import ru.jux.launcher.logs.GameLogs
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderSupport
@@ -71,6 +79,7 @@ import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.online.OnlineCounter
 import ru.jux.launcher.online.ServerJoins
 import ru.jux.launcher.net.DownloadProgress
+import ru.jux.launcher.net.HttpStatusException
 import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.packs.Modpacks
 import ru.jux.launcher.packs.PackSource
@@ -79,6 +88,9 @@ import ru.jux.launcher.servers.ServerList
 import ru.jux.launcher.servers.ServerPing
 import ru.jux.launcher.servers.ServerStatus
 import ru.jux.launcher.servers.Servers
+import ru.jux.launcher.ui.components.Backdrops
+import ru.jux.launcher.ui.components.formatMemory
+import ru.jux.launcher.ui.components.formatTotalMemory
 import ru.jux.launcher.ui.screens.plural
 import ru.jux.launcher.update.UpdateManifest
 import ru.jux.launcher.update.Updater
@@ -117,6 +129,14 @@ sealed interface Modal {
     ) : Modal
     data class Join(val link: LaunchLink.Join, val choices: List<VersionEntry>, val note: String? = null) : Modal
     data class Install(val link: LaunchLink.Install, val plan: InstallPlan? = null) : Modal
+    data class WorldList(val entry: VersionEntry) : Modal
+    data class PackEditor(val mode: PackMode) : Modal
+}
+
+sealed interface PackMode {
+    data object Create : PackMode
+    data class Copy(val from: VersionEntry) : PackMode
+    data class Edit(val pack: Modpack) : PackMode
 }
 
 sealed interface InstallPlan {
@@ -230,7 +250,9 @@ class LauncherState(
 
     var onQuit: () -> Unit = {}
 
-    private var lastLaunch: Pair<VersionEntry, Path>? = null
+    private class LastLaunch(val entry: VersionEntry, val logFile: Path, val at: Long)
+
+    private var lastLaunch: LastLaunch? = null
 
     private var job: Job? = null
     private var jobToken: Any? = null
@@ -446,8 +468,8 @@ class LauncherState(
         }
         if (entry == null) {
             fail(
-                if (request.pack != null) "Сборки из ярлыка больше нет — установи её заново во вкладке «Сборки»"
-                else "Версии ${request.versionId} из ярлыка нет в списке Mojang"
+                if (request.pack != null) "Сборки из ярлыка больше нет"
+                else "Версии ${request.versionId} из ярлыка больше нет"
             )
         }
         return entry
@@ -514,17 +536,22 @@ class LauncherState(
     fun gameExited(exitCode: Int) {
         gameRunning = false
         if (exitCode == 0) return
-        val (entry, logFile) = lastLaunch ?: return
+        val launched = lastLaunch ?: return
+        val entry = launched.entry
         Log.warn("game exited with code $exitCode")
+        val crashReport = GameLogs.locate(LogSource.CRASH, gameDirOf(entry))
+            ?.takeIf { runCatching { it.getLastModifiedTime().toMillis() >= launched.at }.getOrDefault(false) }
+        val diagnosis = CrashHints.diagnose(launched.logFile, crashReport, entry.loader, entry.id, exitCode)
         val actions = buildList {
+            diagnosis.fix?.let { add(it.action) }
             add(NoticeAction.LOGS)
             when {
-                !entry.loader.isModded -> Unit
+                !entry.loader.hasMods || diagnosis.fix != null -> Unit
                 hasModConflicts(entry) -> add(NoticeAction.FIX_MODS)
                 else -> add(NoticeAction.MODS)
             }
         }
-        fail(CrashHints.detail(logFile, entry.loader, entry.id, exitCode), entry, "Игра закрылась с ошибкой", actions)
+        fail(diagnosis.reason, entry, "Игра закрылась с ошибкой", actions, diagnosis.fix?.target)
     }
 
     private fun hasModConflicts(entry: VersionEntry): Boolean =
@@ -535,7 +562,8 @@ class LauncherState(
         entry: VersionEntry? = null,
         title: String? = null,
         actions: List<NoticeAction> = emptyList(),
-    ) = post(NoticeLevel.ERROR, text ?: "Неизвестная ошибка", title, entry, actions)
+        actionTarget: String? = null,
+    ) = post(NoticeLevel.ERROR, text ?: "Неизвестная ошибка", title, entry, actions, actionTarget)
 
     fun inform(
         text: String,
@@ -544,8 +572,15 @@ class LauncherState(
         level: NoticeLevel = NoticeLevel.SUCCESS,
     ) = post(level, text, title, entry, emptyList())
 
-    private fun post(level: NoticeLevel, text: String, title: String?, entry: VersionEntry?, actions: List<NoticeAction>) {
-        val (notice, repeated) = Notices.post(level, text, title, entry?.key, entry?.label, actions)
+    private fun post(
+        level: NoticeLevel,
+        text: String,
+        title: String?,
+        entry: VersionEntry?,
+        actions: List<NoticeAction>,
+        actionTarget: String? = null,
+    ) {
+        val (notice, repeated) = Notices.post(level, text, title, entry?.key, entry?.label, actions, actionTarget = actionTarget)
         when {
             screen == Screen.NOTICES -> Notices.markSeen()
             !repeated || level == NoticeLevel.ERROR -> toast = notice
@@ -598,11 +633,81 @@ class LauncherState(
                 selectEntry(it)
                 play(skipModCheck = true)
             }
+            NoticeAction.MORE_MEMORY, NoticeAction.RESET_MEMORY, NoticeAction.VERIFY_FILES ->
+                entry?.let { fixSettingsAndRetry(it, notice, action) }
+            NoticeAction.DISABLE_MOD -> entry?.let { disableCrashedMod(it, notice) }
+            NoticeAction.INSTALL_MOD -> entry?.let { installMissingMod(it, notice) }
+        }
+    }
+
+    private fun fixSettingsAndRetry(entry: VersionEntry, notice: Notice, action: NoticeAction) {
+        val total = SettingsDefaults.totalSystemMemoryMb()
+        val current = Settings.current.memoryMb
+        val message = when (action) {
+            NoticeAction.MORE_MEMORY -> {
+                val more = SettingsDefaults.memoryPresets(total).firstOrNull { it > current } ?: run {
+                    fail("Больше памяти не выделить: в компьютере ${formatTotalMemory(total)}", entry)
+                    return
+                }
+                Settings.update { it.copy(memoryMb = more) }
+                "Память: ${formatMemory(more)}"
+            }
+            NoticeAction.RESET_MEMORY -> {
+                val recommended = SettingsDefaults.recommendedMemory(total)
+                Settings.update { it.copy(memoryMb = recommended) }
+                "Память: ${formatMemory(recommended)}"
+            }
+            else -> {
+                Settings.update { it.copy(forceVerify = true) }
+                "Перепроверю файлы игры"
+            }
+        }
+        Notices.resolve(notice.id)
+        inform(message, entry, "Исправлено, запускаю", NoticeLevel.INFO)
+        selectEntry(entry)
+        play()
+    }
+
+    private fun disableCrashedMod(entry: VersionEntry, notice: Notice) {
+        val modId = notice.actionTarget ?: return
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { ModManager.disableById(gameDirOf(entry), modId) } }
+                .onSuccess { file ->
+                    if (file == null) {
+                        fail("Мода «$modId» уже нет в папке mods", entry, actions = listOf(NoticeAction.MODS))
+                        return@onSuccess
+                    }
+                    Notices.resolve(notice.id)
+                    modsChanged(entry)
+                    inform("$file выключен", entry, "Исправлено, запускаю", NoticeLevel.INFO)
+                    selectEntry(entry)
+                    play()
+                }
+                .onFailure { fail(it.message, entry, "Мод не выключился") }
+        }
+    }
+
+    private fun installMissingMod(entry: VersionEntry, notice: Notice) {
+        val modId = notice.actionTarget ?: return
+        startJob(entry, "content") {
+            stageChanged("Ищу «$modId» на Modrinth")
+            val project = try {
+                withContext(Dispatchers.IO) { Modrinth.project(MOD_ALIASES[modId] ?: modId) }
+            } catch (e: HttpStatusException) {
+                if (e.code != 404) throw e
+                throw IOException("«$modId» нет на Modrinth")
+            }
+            val present = ModManager.scan(gameDirOf(entry), entry.loader, entry.id).mapNotNull { it.projectId }.toSet()
+            val message = installInto(entry, ContentKind.MOD, project.id, project.title, present) { progress = it }
+            Notices.resolve(notice.id)
+            modsChanged(entry)
+            inform(message, entry, "Зависимость поставлена")
         }
     }
 
     fun fixMods(entry: VersionEntry, source: Notice? = null) {
         startJob(entry, "fix mods") {
+            backupWorldsBeforeChange(entry)
             stageChanged("Подбираю совместимые версии модов")
             val changes = try {
                 ModManager.fixConflicts(gameDirOf(entry), entry.loader, entry.id) { progress = it }
@@ -621,11 +726,11 @@ class LauncherState(
     fun play(server: ServerEntry? = null, skipModCheck: Boolean = false) {
         if (busy) return
         val entry = currentEntry() ?: run {
-            fail("Выберите версию")
+            fail("Выбери версию")
             return
         }
         val account = selectedAccount.value ?: run {
-            fail("Добавьте аккаунт")
+            fail("Добавь аккаунт")
             screen = Screen.ACCOUNTS
             return
         }
@@ -635,7 +740,7 @@ class LauncherState(
     private suspend fun launch(entry: VersionEntry, account: Account, server: ServerEntry?, skipModCheck: Boolean) {
         val gameDir = gameDirOf(entry)
         if (!offerCarryOver(entry, gameDir)) return
-        if (!skipModCheck && entry.loader.isModded) {
+        if (!skipModCheck && entry.loader.hasMods) {
             val conflicts = withContext(Dispatchers.IO) {
                 runCatching { ModCompat.conflictsIn(ModManager.modsDir(gameDir)) }.getOrDefault(emptyList())
             }
@@ -666,13 +771,14 @@ class LauncherState(
         notices.forEach { inform(it, entry, level = NoticeLevel.INFO) }
         refreshInstalled()
         instanceChanged(entry)
-        lastLaunch = entry to result.logFile
+        val startedAt = System.currentTimeMillis()
+        lastLaunch = LastLaunch(entry, result.logFile, startedAt)
         val playing = Presence.Playing(
             versionId = entry.id,
             loaderLabel = entry.loader.takeIf { it.isModded }?.label,
             server = server?.address?.let(GameEvents::display),
-            mods = if (entry.loader.isModded) ModManager.count(gameDir) else 0,
-            startedAt = System.currentTimeMillis(),
+            mods = if (entry.loader.hasMods) ModManager.count(gameDir) else 0,
+            startedAt = startedAt,
             pack = entry.pack?.title,
         )
         DiscordPresence.show(playing)
@@ -737,7 +843,7 @@ class LauncherState(
                 sources to CarryOver.hasOwnOptions(gameDir)
             }
             if (sources.isEmpty()) {
-                inform("Не нашёл других версий с настройками, серверами или мирами", entry, level = NoticeLevel.INFO)
+                inform("Переносить нечего", entry, level = NoticeLevel.INFO)
             } else if (!busy) {
                 modal = Modal.Carry(entry, sources, firstLaunch = false, targetHasOptions = hasOptions)
             }
@@ -759,7 +865,7 @@ class LauncherState(
         instanceChanged(entry)
         carried(result)?.let { inform("Из ${source.label}: $it", entry, "Перенесено в ${entry.label}") }
         if (result.failed.isNotEmpty()) {
-            fail("Не скопировалось: ${result.failed.joinToString(", ")}. Подробности в логе лаунчера.", entry, "Перенесено не всё")
+            fail("Не скопировалось: ${result.failed.joinToString(", ")}", entry, "Перенесено не всё")
         }
     }
 
@@ -777,6 +883,104 @@ class LauncherState(
         }
     }
 
+    fun createPack(title: String, gameVersion: String, loader: LoaderKind, copyFrom: VersionEntry? = null) {
+        if (busy) return
+        modal = null
+        startJob(copyFrom, "pack create") {
+            copyFrom?.let { stageChanged("Копирую ${it.label}") }
+            val pack = withContext(Dispatchers.IO) {
+                Modpacks.create(title, gameVersion, loader, copyFrom?.pack?.loaderVersion, copyFrom?.let(::gameDirOf))
+            }
+            reloadPacks()
+            val entry = entryFor(pack)
+            selectEntry(entry)
+            expandedGroups = expandedGroups + PACKS_GROUP
+            inform(
+                copyFrom?.let { "Копия ${it.label}" } ?: "${entry.id} ${loader.label}",
+                entry,
+                "Сборка «${pack.title}» создана",
+            )
+        }
+    }
+
+    fun editPack(pack: Modpack, title: String) {
+        modal = null
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { Modpacks.rename(pack, title) } }
+                .onSuccess { reloadPacks() }
+                .onFailure { fail(it.message, entryFor(pack), "Сборка не переименована") }
+        }
+    }
+
+    fun choosePackIcon(pack: Modpack) {
+        val image = FilePicker.open("Иконка сборки", FilePicker.IMAGES) ?: return
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { Modpacks.setIcon(pack, image) } }
+                .onSuccess { reloadPacks() }
+                .onFailure { fail(it.message, entryFor(pack), "Иконка не поменялась") }
+        }
+    }
+
+    fun packIconUrl(pack: Modpack): String? = ModIcons.localUrl(Modpacks.iconOf(pack)) ?: pack.iconUrl
+
+    private suspend fun reloadPacks() {
+        packs = withContext(Dispatchers.IO) { Modpacks.list() }
+        instanceRevision++
+    }
+
+    fun showWorlds(entry: VersionEntry) {
+        modal = Modal.WorldList(entry)
+    }
+
+    fun backupWorld(entry: VersionEntry, world: WorldInfo) = worldJob(entry, "Бэкап сохранён") { dir ->
+        stageChanged("Сохраняю бэкап «${world.name}»")
+        Worlds.backup(dir, world.folder) { progress = it }
+        "«${world.name}»"
+    }
+
+    fun restoreWorld(entry: VersionEntry, backup: WorldBackup) = worldJob(entry, "Мир восстановлен") { dir ->
+        stageChanged("Восстанавливаю «${backup.world}»")
+        Worlds.restore(dir, backup) { progress = it }
+        "«${backup.world}»"
+    }
+
+    fun importWorld(entry: VersionEntry) {
+        val archive = FilePicker.open("Архив с миром", listOf(".zip")) ?: return
+        worldJob(entry, "Мир добавлен") { dir ->
+            stageChanged("Распаковываю мир")
+            val folder = Worlds.import(dir, archive) { progress = it }
+            "«$folder» появился в одиночной игре"
+        }
+    }
+
+    fun deleteWorld(entry: VersionEntry, world: WorldInfo) = worldJob(entry, "Мир удалён") { dir ->
+        Worlds.delete(dir, world.folder)
+        if (Storage.trashAvailable) "«${world.name}» в корзине" else "«${world.name}»"
+    }
+
+    fun deleteBackup(entry: VersionEntry, backup: WorldBackup) = worldJob(entry, "Бэкап удалён") {
+        Files.deleteIfExists(backup.file)
+        backup.file.fileName.toString()
+    }
+
+    private fun worldJob(entry: VersionEntry, title: String, block: suspend (Path) -> String) {
+        if (gameRunning) {
+            fail("Закрой игру — миры заняты", entry)
+            return
+        }
+        startJob(entry, "worlds") {
+            val message = withContext(Dispatchers.IO) { block(gameDirOf(entry)) }
+            instanceChanged(entry)
+            inform(message, entry, title)
+        }
+    }
+
+    private suspend fun backupWorldsBeforeChange(entry: VersionEntry) {
+        stageChanged("Сохраняю бэкап миров")
+        val made = withContext(Dispatchers.IO) { Worlds.autoBackup(gameDirOf(entry)) { progress = it } }
+        if (made > 0) Log.info("auto-backed up $made world(s) of ${entry.label}")
+    }
+
     fun updatePack(pack: Modpack) {
         packUpdates[pack.id]?.let { installPack(it) }
     }
@@ -789,8 +993,9 @@ class LauncherState(
         installingPack = projectId
         startJob(entry, "pack") {
             try {
+                entry?.let { backupWorldsBeforeChange(it) }
                 val pack = Modpacks.install(source(), onStage = ::stageChanged, onProgress = { progress = it })
-                packs = withContext(Dispatchers.IO) { Modpacks.list() }
+                reloadPacks()
                 packUpdates = packUpdates - pack.id
                 val entry = entryFor(pack)
                 selectEntry(entry)
@@ -813,7 +1018,7 @@ class LauncherState(
 
     private fun checkPackUpdates() {
         scope.launch {
-            val found = packs.mapNotNull { pack ->
+            val found = packs.filterNot { it.custom }.mapNotNull { pack ->
                 runCatching { Modpacks.update(pack) }
                     .onFailure { if (it !is CancellationException) Log.warn("pack update check for ${pack.id}: ${it.message}") }
                     .getOrNull()
@@ -857,12 +1062,12 @@ class LauncherState(
 
     fun playFromShortcut(request: PlayRequest) {
         if (busy) {
-            fail("Сначала дождитесь окончания загрузки ${busyEntry?.label.orEmpty()}".trimEnd())
+            fail("Дождись загрузки ${busyEntry?.label.orEmpty()}".trimEnd())
             return
         }
         val entry = requested(request) ?: return
         selectEntry(entry)
-        if (gameRunning) inform("Игра уже запущена. ${entry.label} выбрана — запустите её, когда закончите", entry, level = NoticeLevel.INFO) else play()
+        if (gameRunning) inform("Игра уже запущена", entry, level = NoticeLevel.INFO) else play()
     }
 
     fun playOnServer(server: ServerEntry) {
@@ -873,7 +1078,7 @@ class LauncherState(
 
     fun openLink(link: LaunchLink) {
         if (carryAnswer != null) {
-            inform("Сначала выбери, что перенести, а потом открой ссылку ещё раз", level = NoticeLevel.INFO)
+            inform("Сначала выбери, что перенести", level = NoticeLevel.INFO)
             return
         }
         screen = Screen.HOME
@@ -895,7 +1100,7 @@ class LauncherState(
                 throw e
             } catch (e: Exception) {
                 Log.warn("link to ${link.project} unresolved: ${e.message}")
-                InstallPlan.Failed("Modrinth не ответил. Проверь интернет и открой ссылку ещё раз")
+                InstallPlan.Failed("Modrinth не ответил — проверь интернет")
             }
             if (modal === shown) modal = shown.copy(plan = plan)
         }
@@ -951,7 +1156,7 @@ class LauncherState(
                 listOfNotNull(
                     "$title установлен и включён",
                     "вместе с ${titles.dropLast(1).joinToString()}".takeIf { titles.size > 1 },
-                    "шейдеры работают через FPS-буст, он включён".takeIf { boosted },
+                    "FPS-буст включён".takeIf { boosted },
                 ).joinToString(", ")
             }
             ContentKind.RESOURCE_PACK -> {
@@ -967,7 +1172,7 @@ class LauncherState(
 
     fun reinstall(entry: VersionEntry) {
         if (busy) return
-        entry.pack?.let {
+        entry.pack?.takeIf { !it.custom }?.let {
             reinstallPack(it)
             return
         }
@@ -994,7 +1199,7 @@ class LauncherState(
 
     fun delete(entry: VersionEntry, withGameDir: Boolean) {
         if (busy && busyEntry == entry) {
-            fail("Сначала дождитесь окончания загрузки ${entry.label}", entry)
+            fail("Дождись загрузки ${entry.label}", entry)
             return
         }
         entry.pack?.let {
@@ -1017,8 +1222,8 @@ class LauncherState(
             instanceChanged(entry)
             inform(
                 when {
-                    !withGameDir -> "Файлы ${entry.label} удалены, миры и настройки на месте"
-                    trashed -> "${entry.label} удалена, папка сборки в корзине"
+                    !withGameDir -> "Файлы ${entry.label} удалены, миры на месте"
+                    trashed -> "${entry.label} удалена, папка в корзине"
                     else -> "${entry.label} удалена вместе с папкой сборки"
                 },
             )
@@ -1039,7 +1244,7 @@ class LauncherState(
             }
             if (catalogTarget?.pack?.id == pack.id) catalogTarget = null
             if (Settings.current.lastPack == pack.id) Settings.update { it.copy(lastPack = null) }
-            packs = withContext(Dispatchers.IO) { Modpacks.list() }
+            reloadPacks()
             packUpdates = packUpdates - pack.id
             inform(if (trashed) "Сборка ${pack.title} в корзине" else "Сборка ${pack.title} удалена")
         }
@@ -1151,6 +1356,15 @@ class LauncherState(
         }
     }
 
+    fun chooseBackdropImage() {
+        val file = FilePicker.open("Картинка для фона", FilePicker.IMAGES) ?: return
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { Backdrops.importImage(file) } }
+                .onSuccess { Settings.update { it.copy(backdrop = Backdrop.IMAGE) } }
+                .onFailure { fail(it.message, title = "Фон не поменялся") }
+        }
+    }
+
     fun addOffline(nickname: String): String? =
         runCatching { AccountManager.addOffline(nickname) }.fold(
             onSuccess = {
@@ -1212,6 +1426,7 @@ class LauncherState(
 
     private companion object {
         const val GAME_LOG_POLL_MILLIS = 2_000L
+        val MOD_ALIASES = mapOf("fabric" to "fabric-api")
         val FAIL_TITLES = mapOf(
             "launch" to "Игра не запустилась",
             "reinstall" to "Переустановка не удалась",
@@ -1219,8 +1434,10 @@ class LauncherState(
             "pack" to "Сборка не установилась",
             "carry" to "Перенос не удался",
             "content" to "Не установилось",
+            "worlds" to "С миром не получилось",
+            "pack create" to "Сборка не создалась",
         )
-        const val NO_VERSIONS = "Не удалось получить список версий. Проверьте интернет и перезапустите лаунчер."
+        const val NO_VERSIONS = "Нет списка версий — проверь интернет и перезапусти лаунчер"
     }
 }
 

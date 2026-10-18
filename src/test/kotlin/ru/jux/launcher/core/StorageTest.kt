@@ -24,6 +24,8 @@ class StorageTest {
         assertEquals("1.7.10" to LoaderKind.FORGE, Storage.profileOwner("1.7.10-Forge10.13.4.1614-1.7.10", known))
         assertEquals("1.21.1" to LoaderKind.NEOFORGE, Storage.profileOwner("neoforge-21.1.73", known))
         assertEquals("26.3" to LoaderKind.VANILLA, Storage.profileOwner("26.3", known))
+        assertEquals("1.20.1" to LoaderKind.OPTIFINE, Storage.profileOwner("1.20.1-OptiFine_HD_U_I6", known))
+        assertEquals("1.8" to LoaderKind.OPTIFINE, Storage.profileOwner("1.8.0-OptiFine_HD_U_M5", known))
     }
 
     @Test

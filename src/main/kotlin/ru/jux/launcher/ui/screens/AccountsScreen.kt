@@ -68,34 +68,27 @@ fun AccountsScreen(state: LauncherState) {
         Modifier.fillMaxSize().padding(JuxDimens.Gutter).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Panel(Modifier.fillMaxWidth()) {
-            Column {
-                SectionTitle("Лицензионный вход")
-                Text(
-                    "Откроется браузер с формой Microsoft. Пароль вводится только там — " +
-                        "лаунчер его не видит и не хранит.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = JuxColors.TextMuted,
-                )
-                Spacer(Modifier.height(12.dp))
-                JuxButton(
-                    when {
-                        !AuthConfig.isConfigured -> "Временно недоступен"
-                        state.signingIn -> state.signInStage.ifBlank { "Вход…" }
-                        else -> "Войти через Microsoft"
-                    },
-                    style = ButtonStyle.PRIMARY,
-                    enabled = AuthConfig.isConfigured && !state.signingIn,
-                    onClick = { state.signInMicrosoft() },
-                )
+        if (AuthConfig.isConfigured) {
+            Panel(Modifier.fillMaxWidth()) {
+                Column {
+                    SectionTitle("Лицензия")
+                    Text("Вход в браузере — пароль лаунчер не видит", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                    Spacer(Modifier.height(12.dp))
+                    JuxButton(
+                        if (state.signingIn) state.signInStage.ifBlank { "Вход…" } else "Войти через Microsoft",
+                        style = ButtonStyle.PRIMARY,
+                        enabled = !state.signingIn,
+                        onClick = { state.signInMicrosoft() },
+                    )
+                }
             }
         }
 
         Panel(Modifier.fillMaxWidth()) {
             Column {
-                SectionTitle("Офлайн-режим")
+                SectionTitle("Офлайн")
                 Text(
-                    "Работает только на серверах с online-mode=false. Скины и Realms недоступны.",
+                    "Для серверов без лицензии",
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.TextMuted,
                 )
@@ -133,7 +126,7 @@ fun AccountsScreen(state: LauncherState) {
                 SectionTitle("Аккаунты (${accounts.size})")
                 if (accounts.isEmpty()) {
                     Text(
-                        "Пока пусто.",
+                        "Пока пусто",
                         style = MaterialTheme.typography.bodySmall,
                         color = JuxColors.TextMuted,
                     )
@@ -191,15 +184,13 @@ private fun AccountRow(
                 color = if (isSelected) JuxColors.Accent else JuxColors.Text,
                 fontWeight = FontWeight.Medium,
             )
-            Text(
-                when {
-                    account.isOffline -> "Вход не нужен"
-                    account.isExpired -> "Сессия обновится при запуске"
-                    else -> "Сессия активна"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = JuxColors.TextMuted,
-            )
+            if (!account.isOffline) {
+                Text(
+                    if (account.isExpired) "Сессия обновится при запуске" else "Сессия активна",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JuxColors.TextMuted,
+                )
+            }
         }
         if (account.isOffline) Tag("Офлайн", JuxColors.Warning) else Tag("Лицензия", JuxColors.Accent)
         if (isSelected) {

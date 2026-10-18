@@ -109,7 +109,8 @@ object Preloader {
                 val quilt = async { LoaderRepository.supportedGameVersions(LoaderKind.QUILT) }
                 val forge = async { LoaderRepository.supportedGameVersions(LoaderKind.FORGE) }
                 val neoforge = async { LoaderRepository.supportedGameVersions(LoaderKind.NEOFORGE) }
-                LoaderSupport(fabric.await(), quilt.await(), forge.await(), neoforge.await())
+                val optifine = async { LoaderRepository.supportedGameVersions(LoaderKind.OPTIFINE) }
+                LoaderSupport(fabric.await(), quilt.await(), forge.await(), neoforge.await(), optifine.await())
             }
         }
 
@@ -119,6 +120,7 @@ object Preloader {
             quilt = fetched.quilt.ifEmpty { previous.quilt },
             forge = fetched.forge.ifEmpty { previous.forge },
             neoforge = fetched.neoforge.ifEmpty { previous.neoforge },
+            optifine = fetched.optifine.ifEmpty { previous.optifine },
         )
 
         if (!merged.isEmpty) {
@@ -138,7 +140,7 @@ object Preloader {
             ?: return null
 
         val complete = cached.fabric.isNotEmpty() && cached.quilt.isNotEmpty() &&
-            cached.forge.isNotEmpty() && cached.neoforge.isNotEmpty()
+            cached.forge.isNotEmpty() && cached.neoforge.isNotEmpty() && cached.optifine.isNotEmpty()
         val window = if (complete) SUPPORT_FRESH_MILLIS else PARTIAL_FRESH_MILLIS
         val age = System.currentTimeMillis() - supportCache.getLastModifiedTime().toMillis()
         CachedSupport(cached, fresh = age in 0..window)

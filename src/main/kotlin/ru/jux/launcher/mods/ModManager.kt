@@ -69,17 +69,17 @@ object ModManager {
         LoaderKind.QUILT -> listOf("quilt", "fabric")
         LoaderKind.FORGE -> listOf("forge")
         LoaderKind.NEOFORGE -> listOf("neoforge")
-        LoaderKind.VANILLA -> emptyList()
+        LoaderKind.VANILLA, LoaderKind.OPTIFINE -> emptyList()
     }
 
     fun catalogLoaders(content: ContentKind, kind: LoaderKind): List<String> = when (content) {
         ContentKind.MOD -> loadersFor(kind)
-        ContentKind.SHADER -> listOf("iris", "optifine")
+        ContentKind.SHADER -> if (kind == LoaderKind.OPTIFINE) listOf("optifine") else listOf("iris", "optifine")
         ContentKind.RESOURCE_PACK -> listOf("minecraft")
     }
 
     fun shaderLoader(kind: LoaderKind): LoaderKind? = when (kind) {
-        LoaderKind.FABRIC, LoaderKind.QUILT, LoaderKind.NEOFORGE -> kind
+        LoaderKind.FABRIC, LoaderKind.QUILT, LoaderKind.NEOFORGE, LoaderKind.OPTIFINE -> kind
         LoaderKind.VANILLA -> LoaderKind.FABRIC
         LoaderKind.FORGE -> null
     }
@@ -114,7 +114,7 @@ object ModManager {
             val options = InstanceStore.get(gameDir)
             val boost = if (content == ContentKind.MOD) options.boostMods.map { it.fileName }.toSet() else emptySet()
             val blocked = options.blockedUpdates.toSet()
-            val shader = if (content == ContentKind.SHADER) GameOptions.activeShader(gameDir) else null
+            val shader = if (content == ContentKind.SHADER) GameOptions.activeShader(gameDir, kind) else null
             val resourcePacks = if (content == ContentKind.RESOURCE_PACK) GameOptions.resourcePacks(gameDir).toSet() else emptySet()
 
             files.map { file ->
@@ -217,8 +217,9 @@ object ModManager {
         onProgress: (DownloadProgress) -> Unit = {},
     ): List<String> {
         val runLoader = shaderLoader(kind)
-            ?: throw IOException("Шейдеры работают через Iris, а для ${kind.label} его нет. Выбери эту версию с Fabric или NeoForge")
-        val iris = if (IRIS in present) emptyList() else install(gameDir, runLoader, gameVersion, IRIS, "Iris", present, onProgress)
+            ?: throw IOException("Шейдеры не работают с ${kind.label} — выбери Fabric или NeoForge")
+        val iris = if (IRIS in present || runLoader == LoaderKind.OPTIFINE) emptyList()
+        else install(gameDir, runLoader, gameVersion, IRIS, "Iris", present, onProgress)
         val name = downloadPack(gameDir, ContentKind.SHADER, gameVersion, projectId, title, onProgress)
         GameOptions.setShader(gameDir, name)
         return iris + title
@@ -294,9 +295,9 @@ object ModManager {
                 val jars = dir.listDirectoryEntries("*.jar").mapNotNull { jar -> ModCompat.read(jar)?.let { jar to it } }
                 val conflict = ModCompat.conflictsAmong(jars.map { it.second }).firstOrNull() ?: return@withContext changes
                 changes += replaceOneSide(conflict, jars, kind, gameVersion, rejected, onProgress)
-                    ?: throw IOException("${conflict.text}. Подходящей версии на Modrinth нет — выключи один из них в «Моды»")
+                    ?: throw IOException("${conflict.text} — выключи один в «Моды»")
             }
-            if (ModCompat.conflictsIn(dir).isNotEmpty()) throw IOException("Не получилось развести все моды — выключи лишние в «Моды»")
+            if (ModCompat.conflictsIn(dir).isNotEmpty()) throw IOException("Не все моды совместимы — выключи лишние в «Моды»")
             changes
         } finally {
             if (rejected.isNotEmpty()) {
@@ -392,6 +393,20 @@ object ModManager {
             ContentKind.SHADER -> GameOptions.setShader(gameDir, item.fileName.takeIf { enabled })
             ContentKind.RESOURCE_PACK -> GameOptions.setResourcePack(gameDir, item.fileName, enabled)
         }
+    }
+
+    fun disableById(gameDir: Path, modId: String): String? {
+        val dir = modsDir(gameDir)
+        if (!dir.isDirectory()) return null
+        val jar = dir.listDirectoryEntries("*.jar").firstOrNull { modId in ModCompat.idsOf(it) } ?: return null
+        try {
+            Files.move(jar, jar.resolveSibling(jar.name + DISABLED), StandardCopyOption.REPLACE_EXISTING)
+        } catch (e: FileSystemException) {
+            throw IOException("${jar.name}: файл занят. Закрой игру и попробуй снова", e)
+        }
+        clearBlocked(gameDir)
+        Log.info("disabled ${jar.name} ($modId) after a crash")
+        return jar.name
     }
 
     fun remove(item: InstalledItem) {

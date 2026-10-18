@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -30,8 +31,11 @@ import ru.jux.launcher.net.Http
 import ru.jux.launcher.ui.components.JuxIcons
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
+import java.net.URI
+import java.nio.file.Path
 import java.security.MessageDigest
 import kotlin.io.path.exists
+import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.readBytes
 
 object ModIcons {
@@ -51,7 +55,9 @@ object ModIcons {
     suspend fun load(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
         cached(url)?.let { return@withContext it }
         val file = dir.resolve(MessageDigest.getInstance("SHA-1").digest(url.toByteArray()).toHex())
-        val bytes = if (file.exists()) {
+        val bytes = if (url.startsWith("file:")) {
+            runCatching { fetch(url) }.getOrNull() ?: return@withContext null
+        } else if (file.exists()) {
             file.readBytes()
         } else {
             val fetched = runCatching { fetch(url) }.getOrNull() ?: return@withContext null
@@ -63,12 +69,18 @@ object ModIcons {
         bitmap
     }
 
-    private fun fetch(url: String): ByteArray? =
-        Http.client.newCall(Http.request(url)).execute().use { response ->
+    // Локальные картинки (иконки миров и сборок) идут через тот же кэш; время изменения в ссылке сбрасывает его
+    fun localUrl(file: Path?): String? =
+        file?.takeIf { it.exists() }?.let { it.toUri().toString() + "#" + it.getLastModifiedTime().toMillis() }
+
+    private fun fetch(url: String): ByteArray? {
+        if (url.startsWith("file:")) return Path.of(URI(url.substringBefore('#'))).readBytes().takeIf { it.size <= MAX_BYTES }
+        return Http.client.newCall(Http.request(url)).execute().use { response ->
             val body = response.body ?: return null
             if (!response.isSuccessful || body.contentLength() > MAX_BYTES) return null
             body.bytes().takeIf { it.size <= MAX_BYTES }
         }
+    }
 
     private fun shrink(bytes: ByteArray): ImageBitmap {
         val source = SkiaImage.makeFromEncoded(bytes)
@@ -86,7 +98,7 @@ object ModIcons {
 }
 
 @Composable
-fun ModIcon(url: String?, size: Dp = 44.dp) {
+fun ModIcon(url: String?, size: Dp = 44.dp, fallback: ImageVector = JuxIcons.Extension) {
     val bitmap by produceState(url?.let(ModIcons::cached), url) {
         if (value == null && url != null) value = ModIcons.load(url)
     }
@@ -98,7 +110,7 @@ fun ModIcon(url: String?, size: Dp = 44.dp) {
         if (image != null) {
             Image(image, null, modifier = Modifier.fillMaxSize())
         } else {
-            Icon(JuxIcons.Extension, null, tint = JuxColors.TextMuted, modifier = Modifier.size(size / 2))
+            Icon(fallback, null, tint = JuxColors.TextMuted, modifier = Modifier.size(size / 2))
         }
     }
 }

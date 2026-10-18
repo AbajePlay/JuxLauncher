@@ -4,7 +4,10 @@ import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
-enum class AccountType { MICROSOFT, OFFLINE }
+enum class AccountType(val label: String) {
+    MICROSOFT("Лицензия"),
+    OFFLINE("Офлайн"),
+}
 
 @Serializable
 data class Account(

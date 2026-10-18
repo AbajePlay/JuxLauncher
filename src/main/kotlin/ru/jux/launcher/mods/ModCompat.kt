@@ -39,6 +39,21 @@ object ModCompat {
         }
     }.getOrNull()
 
+    // Все id, под которыми мод известен загрузчикам: Fabric, Quilt, Forge и NeoForge пишут их в разные файлы
+    fun idsOf(jar: Path): Set<String> = runCatching {
+        ZipFile(jar.toFile()).use { zip ->
+            fun content(name: String) = zip.getEntry(name)?.let { zip.getInputStream(it).readBytes().decodeToString() }
+            buildSet {
+                content("fabric.mod.json")?.let { parse(Json.parseToJsonElement(it).jsonObject) }?.let { add(it.id); addAll(it.provides) }
+                content("quilt.mod.json")?.let { (Json.parseToJsonElement(it).jsonObject["quilt_loader"] as? JsonObject)?.text("id") }?.let { add(it) }
+                listOf("META-INF/mods.toml", "META-INF/neoforge.mods.toml").mapNotNull(::content)
+                    .forEach { toml -> TOML_ID.findAll(toml).forEach { add(it.groupValues[1]) } }
+            }
+        }
+    }.getOrDefault(emptySet())
+
+    private val TOML_ID = Regex("""modId\s*=\s*"([^"]+)"""")
+
     fun enabledIn(dir: Path, except: Set<Path> = emptySet()): List<ModMeta> {
         if (!dir.isDirectory()) return emptyList()
         return dir.listDirectoryEntries("*.jar").filter { it !in except }.mapNotNull(::read)

@@ -11,7 +11,6 @@ import ru.jux.launcher.launch.GameLauncher
 import ru.jux.launcher.mods.GameOptions
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.packs.Modpacks
-import ru.jux.launcher.servers.Nbt
 import ru.jux.launcher.servers.ServerList
 import java.io.IOException
 import java.nio.file.FileVisitResult
@@ -20,7 +19,6 @@ import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.BasicFileAttributes
-import java.util.zip.GZIPInputStream
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.getLastModifiedTime
@@ -133,11 +131,11 @@ object CarryOver {
         val worlds = listDirs(dir.resolve(SAVES))
             .filter { it.resolve(LEVEL).exists() }
             .map { world ->
-                val (name, version) = readLevel(world)
+                val level = Worlds.readLevel(world)
                 CarryWorld(
                     folder = world.name,
-                    name = name ?: world.name,
-                    gameVersion = version,
+                    name = level.name ?: world.name,
+                    gameVersion = level.gameVersion,
                     bytes = Storage.sizeOf(world),
                     present = target.resolve(SAVES).resolve(world.name).exists(),
                 )
@@ -289,19 +287,6 @@ object CarryOver {
             throw e
         }
     }
-
-    internal fun readLevel(world: Path): Pair<String?, String?> = runCatching {
-        val bytes = GZIPInputStream(Files.newInputStream(world.resolve(LEVEL))).use { it.readBytes() }
-        val data = Nbt.readRoot(bytes).entries["Data"] as? Nbt.CompoundTag
-        val name = (data?.entries?.get("LevelName") as? Nbt.StringTag)?.value
-            ?.replace(FORMATTING, "")
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-        val version = ((data?.entries?.get("Version") as? Nbt.CompoundTag)?.entries?.get("Name") as? Nbt.StringTag)?.value
-        name to version
-    }.getOrDefault(null to null)
-
-    private val FORMATTING = Regex("§.")
 
     private fun labelOf(dir: Path): String {
         Modpacks.read(dir)?.let { return it.title }

@@ -11,6 +11,8 @@ import ru.jux.launcher.core.Json
 import java.nio.file.Path
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
 import kotlin.io.path.outputStream
 
 class ModCompatTest {
@@ -97,6 +99,24 @@ class ModCompatTest {
         val sodium = ModCompat.read(dir.resolve("sodium.jar"))!!
         val others = ModCompat.enabledIn(dir, except = setOf(dir.resolve("sodium.jar")))
         assertEquals("Iris", ModCompat.conflicts(sodium, others).single().other.name)
+    }
+
+    @Test
+    fun `mod ids are found for every loader and the culprit can be switched off`(@TempDir game: Path) {
+        val mods = game.resolve("mods").createDirectories()
+        jar(mods.resolve("sodium.jar"), """{"id":"sodium","name":"Sodium","version":"0.6.0","provides":["embeddium"]}""")
+        ZipOutputStream(mods.resolve("rei.jar").outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("META-INF/neoforge.mods.toml"))
+            zip.write("[[mods]]\nmodId = \"roughlyenoughitems\"\n[[mods]]\nmodId=\"rei_plugins\"".toByteArray())
+            zip.closeEntry()
+        }
+
+        assertEquals(setOf("sodium", "embeddium"), ModCompat.idsOf(mods.resolve("sodium.jar")))
+        assertEquals(setOf("roughlyenoughitems", "rei_plugins"), ModCompat.idsOf(mods.resolve("rei.jar")))
+
+        assertEquals("rei.jar", ModManager.disableById(game, "rei_plugins"))
+        assertTrue(mods.resolve("rei.jar.disabled").exists())
+        assertNull(ModManager.disableById(game, "absent"))
     }
 
     private fun jar(path: Path, fabricModJson: String?) {

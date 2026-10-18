@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toAwtImage
@@ -12,6 +14,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.unit.Dp
 import org.jetbrains.skia.Image as SkiaImage
 import ru.jux.launcher.launch.ArgumentBuilder
+import ru.jux.launcher.ui.theme.JuxColors
 import java.awt.image.BufferedImage
 
 object Brand {
@@ -37,5 +40,18 @@ fun Wordmark(width: Dp, modifier: Modifier = Modifier) {
         contentDescription = ArgumentBuilder.LAUNCHER_NAME,
         modifier = modifier.width(width).aspectRatio(image.width.toFloat() / image.height),
         filterQuality = FilterQuality.Medium,
+        colorFilter = if (JuxColors.isDark) null else ON_LIGHT,
     )
 }
+
+// На светлом фоне белое «Launcher» пропадает: вычитаем синий канал, белое темнеет, а жёлтое «Jux» почти не меняется
+private val ON_LIGHT = ColorFilter.colorMatrix(
+    ColorMatrix(
+        floatArrayOf(
+            1f, 0f, -0.85f, 0f, 0f,
+            0f, 1f, -0.85f, 0f, 0f,
+            0f, 0f, 0.15f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f,
+        ),
+    ),
+)

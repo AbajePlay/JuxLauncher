@@ -46,7 +46,9 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -75,6 +77,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.io.path.exists
@@ -84,9 +87,12 @@ import ru.jux.launcher.instance.InstanceOptions
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.PerformancePack
 import ru.jux.launcher.net.DownloadProgress
+import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.servers.ServerEntry
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
+import ru.jux.launcher.ui.ModIcon
+import ru.jux.launcher.ui.PackMode
 import ru.jux.launcher.ui.PingState
 import ru.jux.launcher.ui.VersionEntry
 import ru.jux.launcher.ui.VersionGroup
@@ -127,7 +133,7 @@ fun HomeScreen(state: LauncherState) {
                             when {
                                 state.onlyInstalled && state.searchQuery.isBlank() -> "Скачанных версий пока нет"
                                 state.onlyInstalled -> "Среди скачанных такой версии нет"
-                                else -> "Ничего не найдено. Включите снапшоты или старые версии в настройках."
+                                else -> "Ничего не найдено"
                             }
                         )
                     } else {
@@ -149,7 +155,11 @@ private fun QuickPlayCard(state: LauncherState) {
     Panel(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("К ЗАПУСКУ", style = MaterialTheme.typography.labelSmall, color = JuxColors.TextMuted)
+                Text(
+                    listOfNotNull("К ЗАПУСКУ", entry?.pack?.let { "${entry.id} ${entry.loader.label}".uppercase() }).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = JuxColors.TextMuted,
+                )
                 Spacer(Modifier.height(10.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -163,10 +173,7 @@ private fun QuickPlayCard(state: LauncherState) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    when {
-                        entry?.pack != null -> Tag("${entry.id} ${entry.loader.label}", loaderColor(entry.loader))
-                        entry != null && entry.loader.isModded -> Tag(entry.loader.label, loaderColor(entry.loader))
-                    }
+                    if (entry != null && entry.pack == null && entry.loader.isModded) Tag(entry.loader.label, loaderColor(entry.loader))
                 }
                 if (entry != null) {
                     Spacer(Modifier.height(16.dp))
@@ -249,7 +256,7 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             }
         }
 
-        WithTooltip("Открыть папку: миры, скриншоты, моды и настройки") {
+        WithTooltip("Папка сборки") {
             ChoiceChip(
                 label = "Папка",
                 selected = false,
@@ -258,9 +265,13 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             )
         }
 
+        WithTooltip("Миры и бэкапы") {
+            ChoiceChip(label = "Миры", selected = false, onClick = { state.showWorlds(entry) }, icon = JuxIcons.World)
+        }
+
         val pack = entry.pack
         if (pack != null && pack.id in state.packUpdates) {
-            WithTooltip("Вышла ${state.packUpdates[pack.id]?.version.orEmpty()}. Миры, настройки и твои моды останутся".trim()) {
+            WithTooltip("Вышла ${state.packUpdates[pack.id]?.version.orEmpty()}, миры останутся".trim()) {
                 ChoiceChip(
                     label = "Обновить сборку",
                     selected = true,
@@ -276,19 +287,12 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
 }
 
 private fun boostHint(entry: VersionEntry, options: InstanceOptions, fabricReady: Boolean): String = when {
-    !fabricReady ->
-        "Моды FPS-буста работают через Fabric, а он пока не поддерживает ${entry.id}."
+    !fabricReady -> "Fabric пока не поддерживает ${entry.id}"
     options.fpsBoost && (options.boostMods.isNotEmpty() || options.boostOwned.isNotEmpty()) ->
-        "Включён: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}." +
-            (if (options.boostMissing.isNotEmpty()) " Ещё не вышли для ${entry.id}: ${options.boostMissing.joinToString()}." else "") +
-            " Нажми, чтобы выключить — моды удалятся."
-    options.fpsBoost ->
-        "Включён. Моды с Modrinth поставятся при запуске: ${PerformancePack.summary}."
-    entry.loader == LoaderKind.VANILLA ->
-        "${PerformancePack.summary} с Modrinth. Игра запустится через Fabric в этой же папке — " +
-            "миры и настройки останутся на месте."
-    else ->
-        "${PerformancePack.summary} с Modrinth добавятся к твоим модам. Те, что уже стоят, не продублируются."
+        "Включён: ${(options.boostMods.map { it.title } + options.boostOwned).distinct().joinToString()}" +
+            (if (options.boostMissing.isNotEmpty()) "\nНет для ${entry.id}: ${options.boostMissing.joinToString()}" else "")
+    options.fpsBoost -> "Включён, моды поставятся при запуске"
+    else -> "Моды: ${PerformancePack.summary}"
 }
 
 @Composable
@@ -322,6 +326,10 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
             state.openFolder(state.gameDirOf(entry))
         })
     }
+    JuxMenuItem("Миры и бэкапы…", icon = JuxIcons.World, onClick = {
+        close()
+        state.showWorlds(entry)
+    })
     JuxMenuItem("Логи", icon = JuxIcons.Log, onClick = {
         close()
         state.showLogs(entry)
@@ -334,6 +342,16 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
         close()
         state.offerCarryInto(entry)
     })
+    JuxMenuItem("Сделать копию…", icon = JuxIcons.Copy, enabled = !state.busy, onClick = {
+        close()
+        state.modal = Modal.PackEditor(PackMode.Copy(entry))
+    })
+    entry.pack?.let { pack ->
+        JuxMenuItem("Название и иконка…", icon = Icons.Default.Edit, onClick = {
+            close()
+            state.modal = Modal.PackEditor(PackMode.Edit(pack))
+        })
+    }
     MenuDivider()
     JuxMenuItem("Переустановить", icon = Icons.Default.Refresh, enabled = (installed || entry.pack != null) && !state.busy, onClick = {
         close()
@@ -440,13 +458,21 @@ private fun ListHeader(state: LauncherState) {
             focusRequester = state.searchFocus,
             onFocusChange = { state.searchFocused = it },
         )
-        WithTooltip(if (state.onlyInstalled) "Показать все версии" else "Показать только скачанные версии и сборки") {
+        WithTooltip(if (state.onlyInstalled) "Все версии" else "Только скачанные") {
             ChoiceChip(
                 label = "Скачанные",
                 selected = state.onlyInstalled,
                 onClick = state::toggleOnlyInstalled,
                 icon = JuxIcons.Download,
             )
+        }
+        WithTooltip("Новая сборка") {
+            IconButton(
+                onClick = { state.modal = Modal.PackEditor(PackMode.Create) },
+                modifier = Modifier.size(38.dp).clip(CircleShape).background(JuxColors.SurfaceHigh),
+            ) {
+                Icon(Icons.Default.Add, "Новая сборка", tint = JuxColors.Text, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
@@ -587,6 +613,7 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                entry.pack?.let { PackIcon(state, it, 24.dp) }
                 Text(
                     entry.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -605,6 +632,12 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
             )
         }
     }
+}
+
+@Composable
+private fun PackIcon(state: LauncherState, pack: Modpack, size: Dp) {
+    val url = remember(pack, state.instanceRevision) { state.packIconUrl(pack) }
+    ModIcon(url, size, fallback = JuxIcons.Layers)
 }
 
 @Composable
@@ -659,7 +692,7 @@ private fun ServerRow(state: LauncherState, server: ServerEntry) {
             JuxMenuItem("Копировать адрес", icon = JuxIcons.Copy, onClick = {
                 close()
                 runCatching { clipboard.setText(AnnotatedString(server.address)) }
-                    .onFailure { state.fail("Не удалось скопировать адрес: буфер обмена занят другой программой") }
+                    .onFailure { state.fail("Буфер обмена занят — адрес не скопирован") }
             })
         },
     ) {

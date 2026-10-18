@@ -7,9 +7,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import ru.jux.launcher.launch.GameLauncher
 import ru.jux.launcher.servers.Nbt
-import java.io.ByteArrayOutputStream
 import java.nio.file.Path
-import java.util.zip.GZIPOutputStream
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
@@ -65,7 +63,7 @@ class CarryOverTest {
         old.resolve("options.txt").writeText(gameOptions)
         old.resolve("options.txt").toFile().setLastModified(1_000_000)
         val fabric = instances.resolve("26.2-fabric").createDirectories()
-        world(fabric, "Survival", "Мой мир", "26.2")
+        writeWorld(fabric, "Survival", "Мой мир", "26.2")
         fabric.resolve("options.txt").writeText("resourcePacks:[\"vanilla\"]")
         fabric.resolve("options.txt").toFile().setLastModified(2_000_000)
         instances.resolve("empty").createDirectories()
@@ -90,14 +88,14 @@ class CarryOverTest {
         from.resolve("options.txt").writeText("version:4000\nlang:ru_ru\n$gameOptions")
         servers(from, "VirtusMine" to "mc.virtusmine.fun", "Друг" to "friend.example:25565", "Ещё" to "other.example")
         from.resolve("resourcepacks").createDirectories().resolve("Faithful.zip").writeText("pack")
-        world(from, "Survival", "Выживание", "26.2")
-        world(from, "Creative", "Креатив", "26.2")
-        world(from, "Old", "Старый", "1.20.1")
+        writeWorld(from, "Survival", "Выживание", "26.2")
+        writeWorld(from, "Creative", "Креатив", "26.2")
+        writeWorld(from, "Old", "Старый", "1.20.1")
         from.resolve("saves/Survival/session.lock").writeText("☃")
 
         val into = root.resolve("26.3").createDirectories()
         servers(into, "Друг" to "FRIEND.example")
-        world(into, "Old", "Старый уже тут", "26.3")
+        writeWorld(into, "Old", "Старый уже тут", "26.3")
 
         val source = CarryOver.sources(into, withShaders = false, roots = listOf(root), official = null).single()
         assertEquals(1, source.servers, "VirtusMine is seeded anyway and the friend's server is already there")
@@ -113,32 +111,17 @@ class CarryOverTest {
         assertTrue(into.resolve("saves/Survival/region/r.0.0.mca").exists())
         assertFalse(into.resolve("saves/Survival/session.lock").exists())
         assertFalse(into.resolve("saves/Creative").exists())
-        assertEquals("Старый уже тут", CarryOver.readLevel(into.resolve("saves/Old")).first)
+        assertEquals("Старый уже тут", Worlds.readLevel(into.resolve("saves/Old")).name)
         assertEquals(listOf("Old", "Survival"), into.resolve("saves").listDirectoryEntries().map { it.name }.sorted())
         assertTrue(from.resolve("saves/Survival/session.lock").exists(), "the source is left as it was")
     }
 
     @Test
     fun `world names and versions are read from level dat`(@TempDir root: Path) {
-        world(root, "w", "§6Золотой мир", "1.21.4")
-        assertEquals("Золотой мир" to "1.21.4", CarryOver.readLevel(root.resolve("saves/w")))
+        writeWorld(root, "w", "§6Золотой мир", "1.21.4")
+        assertEquals("Золотой мир" to "1.21.4", Worlds.readLevel(root.resolve("saves/w")).let { it.name to it.gameVersion })
         root.resolve("saves/broken").createDirectories().resolve("level.dat").writeText("not nbt")
-        assertEquals(null to null, CarryOver.readLevel(root.resolve("saves/broken")))
-    }
-
-    private fun world(gameDir: Path, folder: String, name: String, version: String) {
-        val dir = gameDir.resolve("saves").resolve(folder).createDirectories()
-        val data = Nbt.CompoundTag(
-            mapOf(
-                "LevelName" to Nbt.StringTag(name),
-                "Version" to Nbt.CompoundTag(mapOf("Name" to Nbt.StringTag(version))),
-            ),
-        )
-        val bytes = ByteArrayOutputStream().also { out ->
-            GZIPOutputStream(out).use { it.write(Nbt.writeRoot(Nbt.CompoundTag(mapOf("Data" to data)))) }
-        }.toByteArray()
-        dir.resolve("level.dat").writeBytes(bytes)
-        dir.resolve("region").createDirectories().resolve("r.0.0.mca").writeBytes(ByteArray(4096))
+        assertEquals(LevelInfo(), Worlds.readLevel(root.resolve("saves/broken")))
     }
 
     private fun servers(gameDir: Path, vararg entries: Pair<String, String>) {

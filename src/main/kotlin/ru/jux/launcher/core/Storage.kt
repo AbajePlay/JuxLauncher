@@ -3,6 +3,7 @@ package ru.jux.launcher.core
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderRepository
+import ru.jux.launcher.meta.OptiFineRepository
 import java.awt.Desktop
 import java.io.IOException
 import java.nio.file.FileVisitResult
@@ -48,8 +49,8 @@ object Storage {
             .getOrDefault(false)
         if (!trashed) {
             throw IOException(
-                "Папку сборки не удалось перенести в корзину — наверное, какой-то файл в ней открыт " +
-                    "в другой программе. Папка не тронута: закройте программу и попробуйте ещё раз."
+                "Папка занята другой программой — " +
+                    "закрой её и попробуй ещё раз"
             )
         }
         return true
@@ -93,6 +94,9 @@ object Storage {
                 gameVersionAtEnd(id.removePrefix("fabric-loader-"))?.let { it to LoaderKind.FABRIC }
             id.startsWith("quilt-loader-") ->
                 gameVersionAtEnd(id.removePrefix("quilt-loader-"))?.let { it to LoaderKind.QUILT }
+            id.contains(OPTIFINE_MARKER) ->
+                id.substringBefore(OPTIFINE_MARKER).let { base -> if (base in known) base else OptiFineRepository.normalize(base) }
+                    .takeIf { it.isNotEmpty() }?.let { it to LoaderKind.OPTIFINE }
             id.startsWith("neoforge-") ->
                 LoaderRepository.neoForgeGameVersion(id.removePrefix("neoforge-"))?.let { it to LoaderKind.NEOFORGE }
             id.contains("-forge", ignoreCase = true) ->
@@ -101,6 +105,8 @@ object Storage {
             else -> id to LoaderKind.VANILLA
         }
     }
+
+    private const val OPTIFINE_MARKER = "-OptiFine_"
 
     private fun listDirs(dir: Path): List<Path> =
         runCatching { dir.listDirectoryEntries().filter { it.isDirectory() } }.getOrDefault(emptyList())

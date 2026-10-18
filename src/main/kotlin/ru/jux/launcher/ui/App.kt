@@ -64,8 +64,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.jux.launcher.core.NoticeLevel
+import ru.jux.launcher.core.Settings
 import ru.jux.launcher.launch.ArgumentBuilder
 import ru.jux.launcher.online.OnlineCounter
+import ru.jux.launcher.ui.components.BackdropLayer
 import ru.jux.launcher.ui.components.JuxDropdownMenu
 import ru.jux.launcher.ui.components.JuxIcons
 import ru.jux.launcher.ui.components.JuxMenuItem
@@ -91,8 +93,10 @@ import ru.jux.launcher.update.UpdateState
 @Composable
 fun App(state: LauncherState, onGameStarted: (Process) -> Unit) {
     SideEffect { state.onGameStarted = onGameStarted }
+    val settings by Settings.state.collectAsState()
     Box(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxSize().background(JuxColors.Background)) {
+        BackdropLayer(settings.backdrop, settings.backdropDim)
+        Row(Modifier.fillMaxSize()) {
             NavRail(state)
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 ScreenHost(state)
@@ -359,11 +363,7 @@ private fun AccountSwitcher(state: LauncherState) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    when {
-                        account == null -> "нужен, чтобы играть"
-                        account!!.isOffline -> "Офлайн"
-                        else -> "Лицензия"
-                    },
+                    account?.type?.label ?: "нужен, чтобы играть",
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.TextMuted,
                 )
@@ -381,7 +381,7 @@ private fun AccountSwitcher(state: LauncherState) {
                         Column {
                             Text(item.name, style = MaterialTheme.typography.bodyMedium, color = JuxColors.Text)
                             Text(
-                                if (item.isOffline) "Офлайн" else "Лицензия",
+                                item.type.label,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = JuxColors.TextMuted,
                             )

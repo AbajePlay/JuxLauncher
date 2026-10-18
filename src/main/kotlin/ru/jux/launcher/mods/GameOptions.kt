@@ -6,6 +6,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.writeAtomically
+import ru.jux.launcher.meta.LoaderKind
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,6 +22,8 @@ object GameOptions {
     private const val IRIS = "config/iris.properties"
     private const val SHADER_PACK = "shaderPack"
     private const val SHADERS_ON = "enableShaders"
+    private const val OPTIFINE = "optionsshaders.txt"
+    private val OPTIFINE_OFF = listOf("OFF", "(internal)")
 
     fun resourcePacks(gameDir: Path): List<String> =
         lines(gameDir.resolve(OPTIONS)).firstOrNull { it.startsWith(PACKS_KEY) }?.let(::parsePacks) ?: listOf(VANILLA)
@@ -43,18 +46,30 @@ object GameOptions {
         file.writeAtomically(updated.joinToString("\n", postfix = "\n"))
     }
 
-    fun activeShader(gameDir: Path): String? {
-        val properties = iris(gameDir)
+    fun activeShader(gameDir: Path, loader: LoaderKind = LoaderKind.FABRIC): String? {
+        if (loader == LoaderKind.OPTIFINE) {
+            return properties(gameDir, OPTIFINE).getProperty(SHADER_PACK)?.takeIf { it.isNotBlank() && it !in OPTIFINE_OFF }
+        }
+        val properties = properties(gameDir, IRIS)
         if (properties.getProperty(SHADERS_ON, "true") == "false") return null
         return properties.getProperty(SHADER_PACK)?.takeIf { it.isNotBlank() }
     }
 
+    // Iris и OptiFine хранят выбранный шейдер в разных файлах: пишем в оба, каждый читает свой
     fun setShader(gameDir: Path, fileName: String?) {
-        val properties = iris(gameDir)
-        if (fileName != null) properties.setProperty(SHADER_PACK, fileName)
-        properties.setProperty(SHADERS_ON, (fileName != null).toString())
+        val iris = properties(gameDir, IRIS)
+        if (fileName != null) iris.setProperty(SHADER_PACK, fileName)
+        iris.setProperty(SHADERS_ON, (fileName != null).toString())
+        store(gameDir, IRIS, iris)
+
+        val optiFine = properties(gameDir, OPTIFINE)
+        optiFine.setProperty(SHADER_PACK, fileName ?: OPTIFINE_OFF.first())
+        store(gameDir, OPTIFINE, optiFine)
+    }
+
+    private fun store(gameDir: Path, file: String, properties: Properties) {
         val bytes = ByteArrayOutputStream().also { properties.store(it, null) }.toByteArray()
-        gameDir.resolve(IRIS).writeAtomically(bytes)
+        gameDir.resolve(file).writeAtomically(bytes)
     }
 
     internal fun parsePacks(line: String): List<String> = runCatching {
@@ -66,8 +81,8 @@ object GameOptions {
     private fun lines(file: Path): List<String> =
         if (file.exists()) runCatching { file.readLines() }.getOrDefault(emptyList()) else emptyList()
 
-    private fun iris(gameDir: Path): Properties = Properties().apply {
-        val file = gameDir.resolve(IRIS)
+    private fun properties(gameDir: Path, name: String): Properties = Properties().apply {
+        val file = gameDir.resolve(name)
         if (file.exists()) runCatching { Files.newInputStream(file).use(::load) }
     }
 }

@@ -1,6 +1,7 @@
 package ru.jux.launcher
 
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -151,13 +152,14 @@ fun main(args: Array<String>) {
                     window.minimumSize = java.awt.Dimension(900, 560)
                     LaunchedEffect(Unit) {
                         WindowChrome.applyIcon(window)
-                        WindowChrome.applyDark(window)
                         if (!reportedReady) {
                             reportedReady = true
                             Log.info("startup: launcher ready at ${sinceProcessStart()} ms")
                         }
                         if (state.consumePendingPlay()) state.play()
                     }
+                    val theme = Settings.state.collectAsState().value.theme
+                    LaunchedEffect(theme) { WindowChrome.applyTheme(window) }
                     LaunchedEffect(raised) {
                         if (raised > 0) {
                             window.toFront()
@@ -187,7 +189,7 @@ private fun bootstrap(args: Array<String>): SingleInstance {
         SingleInstance.Role.UNREACHABLE -> {
             JOptionPane.showMessageDialog(
                 null,
-                "JuxLauncher уже запущен, но не отвечает.\nЗакройте его в диспетчере задач и запустите снова.",
+                "JuxLauncher завис.\nЗакрой его в диспетчере задач и запусти снова.",
                 "JuxLauncher",
                 JOptionPane.WARNING_MESSAGE,
             )

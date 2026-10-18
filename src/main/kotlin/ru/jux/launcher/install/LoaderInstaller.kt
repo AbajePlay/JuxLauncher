@@ -8,9 +8,11 @@ import kotlinx.serialization.decodeFromString
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
+import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderRepository
+import ru.jux.launcher.meta.OptiFineRepository
 import ru.jux.launcher.meta.VersionJson
 import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.net.DownloadTask
@@ -20,17 +22,21 @@ import java.io.IOException
 import java.nio.charset.Charset
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.name
+import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 object LoaderInstaller {
 
     private const val INSTALLER_TIMEOUT_MINUTES = 15L
+    private const val INSTALLER_LOG_LINES = 200
 
     suspend fun ensureProfile(
         kind: LoaderKind,
@@ -50,8 +56,8 @@ object LoaderInstaller {
                 return@withContext it
             }
             throw IOException(
-                "Для $gameVersion не нашлось ни одной сборки ${kind.label}. " +
-                    "Возможно, она ещё не вышла или нет связи с их сервером."
+                "${kind.label} для $gameVersion не найден — " +
+                    "ещё не вышел или нет связи"
             )
         }
         Log.info("${kind.label} build chosen for $gameVersion: $loaderVersion")
@@ -61,8 +67,71 @@ object LoaderInstaller {
                 installFabricLike(kind, gameVersion, loaderVersion, onStage)
             LoaderKind.FORGE, LoaderKind.NEOFORGE ->
                 installViaInstaller(kind, gameVersion, loaderVersion, javaExecutable, onStage, onProgress)
+            LoaderKind.OPTIFINE ->
+                installOptiFine(gameVersion, loaderVersion, javaExecutable, onStage, onProgress)
             LoaderKind.VANILLA -> gameVersion
         }
+    }
+
+    // Установщик OptiFine умеет ставить только в %APPDATA%\.minecraft: подсовываем ему временную папку
+    // с чистой версией, а готовый профиль и библиотеки переносим к себе
+    private suspend fun installOptiFine(
+        gameVersion: String,
+        edition: String,
+        javaExecutable: suspend () -> Path,
+        onStage: (String) -> Unit,
+        onProgress: (DownloadProgress) -> Unit,
+    ): String {
+        installedProfile(LoaderKind.OPTIFINE, gameVersion)
+            ?.takeIf { it.endsWith(edition) && isInstalled(it) }
+            ?.let {
+                Log.debug("OptiFine profile $it already present")
+                return it
+            }
+
+        onStage("Скачиваю OptiFine $edition")
+        val build = OptiFineRepository.build(gameVersion, edition)
+        val installerJar = Paths.cache.resolve("installers").resolve(build.file)
+        val base = Json.decodeFromString<VersionJson>(Paths.versionJson(gameVersion).readText())
+        val client = base.downloads?.client ?: throw IOException("У $gameVersion нет файла игры для OptiFine")
+        Downloader().run(
+            listOf(
+                DownloadTask(OptiFineRepository.downloadUrl(build), installerJar, label = build.file),
+                DownloadTask(client.url, Paths.versionJar(gameVersion), client.sha1, client.size, label = "$gameVersion.jar"),
+            ),
+            onProgress,
+        )
+
+        val staging = Paths.cache.resolve("optifine-install")
+        Storage.deleteTree(staging)
+        val minecraft = staging.resolve(".minecraft")
+        val stagedVersion = minecraft.resolve("versions").resolve(gameVersion).also { it.createDirectories() }
+        Files.copy(Paths.versionJson(gameVersion), stagedVersion.resolve("$gameVersion.json"))
+        Files.copy(Paths.versionJar(gameVersion), stagedVersion.resolve("$gameVersion.jar"))
+        minecraft.resolve("launcher_profiles.json").writeText("""{"profiles":{}}""")
+
+        onStage("Устанавливаю OptiFine $edition")
+        runJava(
+            javaExecutable(),
+            listOf("-Djava.awt.headless=true", "-cp", installerJar.toAbsolutePath().toString(), "optifine.Installer"),
+            workDir = staging,
+            log = installerJar.resolveSibling("optifine-output.log"),
+            env = mapOf("APPDATA" to staging.toAbsolutePath().toString()),
+        )
+
+        val profile = minecraft.resolve("versions").listDirectoryEntries()
+            .firstOrNull { LoaderKind.OPTIFINE.ownsProfile(it.name, gameVersion) && it.resolve("${it.name}.json").exists() }
+            ?: throw IOException("OptiFine не установился — подробности в логе лаунчера")
+        val id = profile.name
+        Paths.versionDir(id).createDirectories()
+        Files.copy(profile.resolve("$id.json"), Paths.versionJson(id), StandardCopyOption.REPLACE_EXISTING)
+        Files.copy(Paths.versionJar(gameVersion), Paths.versionJar(id), StandardCopyOption.REPLACE_EXISTING)
+        minecraft.resolve("libraries").toFile().copyRecursively(Paths.libraries.toFile(), overwrite = true)
+        Storage.deleteTree(staging)
+
+        Paths.versionDir(id).resolve(INSTALLED_MARKER).writeText("")
+        Log.info("OptiFine profile installed: $id")
+        return id
     }
 
     private fun installFabricLike(
@@ -126,8 +195,13 @@ object LoaderInstaller {
             ensureLauncherProfilesStub()
 
             val java = javaExecutable()
-            onStage("Устанавливаю ${kind.label} — это занимает пару минут")
-            runInstaller(java, installerJar)
+            onStage("Устанавливаю ${kind.label}")
+            runJava(
+                java,
+                listOf("-jar", installerJar.toAbsolutePath().toString(), "--installClient", Paths.root.toAbsolutePath().toString()),
+                workDir = Paths.root,
+                log = installerJar.resolveSibling("installer-output.log"),
+            )
 
             locateInstalledProfile(kind, gameVersion, loaderVersion)
                 ?: throw IOException(
@@ -145,21 +219,21 @@ object LoaderInstaller {
     private fun isInstalled(id: String): Boolean =
         Paths.versionJson(id).exists() && Paths.versionDir(id).resolve(INSTALLED_MARKER).exists()
 
-    private suspend fun runInstaller(javaExecutable: Path, installerJar: Path) {
-        val command = listOf(
-            javaExecutable.toAbsolutePath().toString(),
-            "-jar",
-            installerJar.toAbsolutePath().toString(),
-            "--installClient",
-            Paths.root.toAbsolutePath().toString(),
-        )
-        Log.info("running loader installer: ${command.joinToString(" ")}")
+    private suspend fun runJava(
+        javaExecutable: Path,
+        arguments: List<String>,
+        workDir: Path,
+        log: Path,
+        env: Map<String, String> = emptyMap(),
+    ) {
+        val command = listOf(javaExecutable.toAbsolutePath().toString()) + arguments
+        Log.info("running installer: ${command.joinToString(" ")}")
 
-        val output = installerJar.resolveSibling("installer-output.log")
         val process = ProcessBuilder(command)
-            .directory(Paths.root.toFile())
+            .directory(workDir.toFile())
             .redirectErrorStream(true)
-            .redirectOutput(output.toFile())
+            .redirectOutput(log.toFile())
+            .apply { environment().putAll(env) }
             .start()
         try {
             val deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(INSTALLER_TIMEOUT_MINUTES)
@@ -173,9 +247,9 @@ object LoaderInstaller {
             if (process.isAlive) process.destroyForcibly()
         }
 
-        val lines = runCatching { String(Files.readAllBytes(output), nativeCharset) }.getOrDefault("")
+        val lines = runCatching { String(Files.readAllBytes(log), nativeCharset) }.getOrDefault("")
             .lineSequence().filter { it.isNotBlank() }.toList()
-        lines.forEach { Log.debug("installer: $it") }
+        lines.takeLast(INSTALLER_LOG_LINES).forEach { Log.debug("installer: $it") }
 
         val exit = process.exitValue()
         if (exit != 0) {
@@ -200,6 +274,7 @@ object LoaderInstaller {
             LoaderKind.QUILT -> "quilt-loader-$loaderVersion-$gameVersion"
             LoaderKind.FORGE -> "$gameVersion-forge-$loaderVersion"
             LoaderKind.NEOFORGE -> "neoforge-$loaderVersion"
+            LoaderKind.OPTIFINE -> "$gameVersion-OptiFine_$loaderVersion"
             LoaderKind.VANILLA -> gameVersion
         }
 

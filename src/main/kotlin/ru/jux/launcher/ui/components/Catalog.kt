@@ -71,8 +71,8 @@ fun SearchResults(search: CatalogSearch, listState: LazyListState, row: @Composa
     val hits = search.hits
     when {
         hits.isEmpty() && search.searching -> ListHint("Ищу на Modrinth…")
-        hits.isEmpty() && search.failed -> ListHint("Нет связи с Modrinth. Проверь интернет.", "Повторить") { search.run() }
-        hits.isEmpty() -> ListHint("Ничего не нашлось. Попробуй другое название.")
+        hits.isEmpty() && search.failed -> ListHint("Нет связи с Modrinth", "Повторить") { search.run() }
+        hits.isEmpty() -> ListHint("Ничего не нашлось")
         else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(hits, key = { it.projectId }) { row(it) }
             item {
@@ -129,7 +129,7 @@ fun ContentRow(
                     details,
                     style = MaterialTheme.typography.bodySmall,
                     color = if (detailsAccent) JuxColors.Accent else JuxColors.Text.copy(alpha = 0.8f),
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

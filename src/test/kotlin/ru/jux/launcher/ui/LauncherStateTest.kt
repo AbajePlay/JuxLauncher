@@ -182,7 +182,7 @@ class LauncherStateTest {
 
         val future = state.joinModal(LaunchLink.Join("mc.example.org", "99.1", null))
         assertEquals(listOf("26.3#VANILLA", "26.3#FABRIC", "pack:fabulously-optimized"), future.choices.map { it.key })
-        assertEquals("Версии 99.1 нет в списке Mojang — предлагаю последнюю, 26.3", future.note)
+        assertEquals("Версии 99.1 нет — предлагаю 26.3", future.note)
 
         val any = state.joinModal(LaunchLink.Join("mc.example.org", null, null))
         assertEquals(listOf("26.3#VANILLA", "pack:fabulously-optimized", "26.3#FABRIC"), any.choices.map { it.key })

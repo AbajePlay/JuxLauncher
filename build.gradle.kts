@@ -101,6 +101,7 @@ tasks.register<JavaExec>("renderScreens") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("ru.jux.launcher.dev.RenderScreensKt")
     args(layout.buildDirectory.dir("preview").get().asFile.absolutePath)
+    (findProperty("renderHome") as String?)?.let { systemProperty("user.home", it) }
 }
 
 tasks.register<JavaExec>("smokeLoaders") {
@@ -109,6 +110,7 @@ tasks.register<JavaExec>("smokeLoaders") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("ru.jux.launcher.dev.LoaderSmokeKt")
     (findProperty("smokeHome") as String?)?.let { systemProperty("user.home", it) }
+    if (project.hasProperty("prepareOnly")) systemProperty("smoke.prepareOnly", "true")
     args((findProperty("targets") as String? ?: "").split(',').filter { it.isNotBlank() })
 }
 

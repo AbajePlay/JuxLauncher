@@ -52,6 +52,7 @@ fun loaderColor(kind: LoaderKind): Color = when (kind) {
     LoaderKind.FORGE -> JuxColors.LoaderForge
     LoaderKind.NEOFORGE -> JuxColors.LoaderNeoForge
     LoaderKind.VANILLA -> JuxColors.LoaderVanilla
+    LoaderKind.OPTIFINE -> JuxColors.LoaderOptiFine
 }
 
 @Composable

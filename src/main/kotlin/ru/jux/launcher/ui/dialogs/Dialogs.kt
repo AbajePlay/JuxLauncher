@@ -60,6 +60,7 @@ import ru.jux.launcher.ui.components.ChoiceChip
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDialog
 import ru.jux.launcher.ui.components.JuxIcons
+import ru.jux.launcher.ui.components.NoteStrip
 import ru.jux.launcher.ui.components.formatBytes
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
@@ -74,6 +75,8 @@ fun ModalHost(state: LauncherState) {
         is Modal.Carry -> CarryDialog(state, modal)
         is Modal.Join -> JoinDialog(state, modal)
         is Modal.Install -> InstallDialog(state, modal)
+        is Modal.WorldList -> WorldsDialog(state, modal)
+        is Modal.PackEditor -> PackDialog(state, modal)
     }
 }
 
@@ -116,13 +119,13 @@ private fun DeleteDialog(state: LauncherState, entry: VersionEntry) {
     ) {
         val known = info
         if (known == null) {
-            Text("Считаю, сколько места освободится…", style = MaterialTheme.typography.bodyMedium, color = JuxColors.TextMuted)
+            Text("Считаю место…", style = MaterialTheme.typography.bodyMedium, color = JuxColors.TextMuted)
             return@JuxDialog
         }
         if (entry.pack != null) {
             Text(
-                "Папка сборки — " + (if (known.hasWorlds) "миры, " else "") + "моды и настройки (${formatBytes(known.folderBytes)}) — " +
-                    if (Storage.trashAvailable) "уйдёт в корзину, её можно будет восстановить." else "удалится насовсем.",
+                "Папка сборки (${formatBytes(known.folderBytes)}) " +
+                    if (Storage.trashAvailable) "уйдёт в корзину" else "удалится насовсем",
                 style = MaterialTheme.typography.bodyMedium,
                 color = JuxColors.Text,
             )
@@ -130,9 +133,9 @@ private fun DeleteDialog(state: LauncherState, entry: VersionEntry) {
         }
         Text(
             if (known.versionBytes > 0) {
-                "Файлы версии (${formatBytes(known.versionBytes)}) удалятся. Если снова выбрать эту версию, они скачаются заново."
+                "Файлы версии: ${formatBytes(known.versionBytes)}. Скачаются заново при запуске"
             } else {
-                "Файлов версии на диске уже нет."
+                "Файлов версии уже нет"
             },
             style = MaterialTheme.typography.bodyMedium,
             color = JuxColors.Text,
@@ -158,14 +161,14 @@ private fun DeleteDialog(state: LauncherState, entry: VersionEntry) {
                 )
                 Column(Modifier.padding(top = 12.dp)) {
                     Text(
-                        "Удалить и папку сборки — " + (if (known.hasWorlds) "миры, " else "") +
-                            "моды и настройки (${formatBytes(known.folderBytes)})",
+                        "И папку сборки " + (if (known.hasWorlds) "с мирами " else "") +
+                            "(${formatBytes(known.folderBytes)})",
                         style = MaterialTheme.typography.bodyMedium,
                         color = JuxColors.Text,
                     )
                     Text(
-                        if (Storage.trashAvailable) "Папка уйдёт в корзину, её можно будет восстановить."
-                        else "Восстановить её будет нельзя.",
+                        if (Storage.trashAvailable) "Уйдёт в корзину"
+                        else "Насовсем, без корзины",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (Storage.trashAvailable) JuxColors.TextMuted else JuxColors.Danger,
                     )
@@ -256,7 +259,7 @@ private fun LogDialog(state: LauncherState, modal: Modal.Logs) {
             val shown = lines
             when {
                 file == null -> LogHint(emptyLogText(source))
-                readError != null -> LogHint("Не удалось прочитать лог: $readError")
+                readError != null -> LogHint("Лог не читается: $readError")
                 shown == null -> LogHint("Читаю…")
                 shown.isEmpty() -> LogHint("Лог пуст")
                 else -> {
@@ -308,8 +311,8 @@ private fun LogDialog(state: LauncherState, modal: Modal.Logs) {
 }
 
 private fun emptyLogText(source: LogSource): String = when (source) {
-    LogSource.GAME -> "Лога пока нет: эту сборку ещё не запускали."
-    LogSource.CRASH -> "Крэш-репортов нет — игра в этой сборке не падала."
+    LogSource.GAME -> "Сборку ещё не запускали"
+    LogSource.CRASH -> "Вылетов не было"
     LogSource.LAUNCHER -> "Лог лаунчера не найден."
 }
 
@@ -330,21 +333,12 @@ private fun LogHint(text: String) {
 @Composable
 private fun ShareStatus(share: ShareState, onConfirm: () -> Unit, onCancel: () -> Unit) {
     if (share == ShareState.Idle) return
-    Spacer(Modifier.height(12.dp))
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
-            .background(JuxColors.SurfaceHigh)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    NoteStrip(Modifier.padding(top = 12.dp)) {
         when (share) {
             ShareState.Confirm -> {
                 Text(
-                    "Лог уйдёт на mclo.gs, и открыть его сможет любой, у кого будет ссылка. " +
-                        "Токены и путь к папке пользователя будут скрыты.",
+                    "Лог будет доступен по ссылке на mclo.gs. " +
+                        "Токены скрыты.",
                     style = MaterialTheme.typography.bodySmall,
                     color = JuxColors.Text,
                     modifier = Modifier.weight(1f),
@@ -354,12 +348,12 @@ private fun ShareStatus(share: ShareState, onConfirm: () -> Unit, onCancel: () -
             }
             ShareState.Uploading -> Text("Загружаю на mclo.gs…", style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
             ShareState.Copied -> Text(
-                "Лог скопирован. Токены и путь к папке пользователя в нём скрыты.",
+                "Лог скопирован, токены скрыты",
                 style = MaterialTheme.typography.bodySmall,
                 color = JuxColors.TextMuted,
             )
             is ShareState.CopyFailed -> Text(
-                "Не удалось скопировать: ${share.message}",
+                "Не скопировалось: ${share.message}",
                 style = MaterialTheme.typography.bodySmall,
                 color = JuxColors.Danger,
             )
@@ -373,7 +367,7 @@ private fun ShareStatus(share: ShareState, onConfirm: () -> Unit, onCancel: () -
                 )
             }
             is ShareState.Failed -> Text(
-                "Не удалось загрузить: ${share.message}",
+                "Не загрузилось: ${share.message}",
                 style = MaterialTheme.typography.bodySmall,
                 color = JuxColors.Danger,
             )

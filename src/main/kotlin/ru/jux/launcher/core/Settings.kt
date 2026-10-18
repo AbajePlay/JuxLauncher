@@ -25,6 +25,11 @@ data class LauncherSettings(
     val lastPack: String? = null,
     val forceVerify: Boolean = false,
     val installId: String? = null,
+    val theme: ThemeMode = ThemeMode.DARK,
+    val accentColor: Int = DEFAULT_ACCENT,
+    val backdrop: Backdrop = Backdrop.NONE,
+    val backdropColor: Int = DEFAULT_BACKDROP_COLOR,
+    val backdropDim: Float = 0.6f,
 )
 
 object SettingsDefaults {

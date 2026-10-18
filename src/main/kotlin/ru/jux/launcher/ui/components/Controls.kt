@@ -480,3 +480,26 @@ fun JuxDialog(
         }
     }
 }
+
+@Composable
+fun NoteStrip(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
+            .background(JuxColors.SurfaceHigh)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        content = content,
+    )
+}
+
+@Composable
+fun ConfirmStrip(text: String, action: String, danger: Boolean, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    NoteStrip(Modifier.padding(top = 12.dp)) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = JuxColors.Text, modifier = Modifier.weight(1f))
+        JuxButton("Отмена", onClick = onCancel)
+        JuxButton(action, style = if (danger) ButtonStyle.DANGER else ButtonStyle.PRIMARY, onClick = onConfirm)
+    }
+}

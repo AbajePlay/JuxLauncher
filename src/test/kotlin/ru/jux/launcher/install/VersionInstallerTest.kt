@@ -86,6 +86,6 @@ class VersionInstallerTest {
         val installer = VersionInstaller(downloader = Downloader(maxAttempts = 1), env = windows)
 
         val error = assertThrows<IOException> { runBlocking { installer.ensureAssetIndex(version) } }
-        assertTrue("список ресурсов" in error.message.orEmpty(), error.message)
+        assertTrue("ресурсы игры" in error.message.orEmpty(), error.message)
     }
 }

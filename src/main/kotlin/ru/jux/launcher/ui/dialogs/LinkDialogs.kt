@@ -83,21 +83,21 @@ internal fun JoinDialog(state: LauncherState, modal: Modal.Join) {
         },
     ) {
         if (modal.choices.isEmpty()) {
-            Hint(modal.note ?: "Нет ни одной версии игры. Проверь интернет и открой ссылку ещё раз", JuxColors.Danger)
+            Hint(modal.note ?: "Нет версий — проверь интернет", JuxColors.Danger)
             return@JuxDialog
         }
         EntryChoices(state, "Сборка", modal.choices, choice) { choice = it }
         Spacer(Modifier.height(14.dp))
         when {
-            state.gameRunning -> Hint("Игра уже запущена. Закрой её, и отсюда сразу зайдёшь на сервер", JuxColors.Warning)
+            state.gameRunning -> Hint("Закрой игру, чтобы зайти на сервер", JuxColors.Warning)
             state.busy -> Hint(busyText(state), JuxColors.Warning)
             modal.note != null -> Hint(modal.note, JuxColors.Warning)
             link.version != null && choice?.let { link.accepts(it.id) } == false -> Hint(
-                if (link.minVersion != null) "Сервер пускает с ${link.range}, а сборка на ${choice?.id} — может не пустить"
-                else "Сервер на ${link.version}, а сборка на ${choice?.id} — без ViaVersion на сервере не пустит",
+                if (link.minVersion != null) "Сервер на ${link.range}, сборка на ${choice?.id} — может не пустить"
+                else "Сервер на ${link.version}, сборка на ${choice?.id} — может не пустить",
                 JuxColors.Warning,
             )
-            else -> Hint("Игра сразу зайдёт на сервер, а адрес останется в списке серверов этой сборки")
+            else -> Hint("Игра сразу зайдёт на сервер")
         }
     }
 }
@@ -160,8 +160,7 @@ internal fun InstallDialog(state: LauncherState, modal: Modal.Install) {
     ) {
         if (link.content == LinkContent.DATAPACK) {
             Hint(
-                "Датапак ставится в мир, а не в сборку, и лаунчер пока так не умеет. " +
-                    "Скачай его на Modrinth и положи в папку datapacks мира или добавь при создании мира.",
+                "Датапак ставится в мир: скачай его на Modrinth и положи в папку datapacks мира",
                 JuxColors.Text,
             )
             return@JuxDialog
@@ -173,8 +172,8 @@ internal fun InstallDialog(state: LauncherState, modal: Modal.Install) {
                 ProjectCard(plan.project, modrinth)
                 Spacer(Modifier.height(14.dp))
                 Hint(
-                    if (plan.installed != null) "Сборка уже установлена: ${plan.installed.title} ${plan.installed.version}"
-                    else "Скачаю сборку со всеми модами и настройками в отдельную папку, миры других версий её не заденут",
+                    if (plan.installed != null) "Уже установлена: ${plan.installed.title} ${plan.installed.version}"
+                    else "Поставится в отдельную папку",
                 )
             }
             is InstallPlan.Content -> {
@@ -185,14 +184,13 @@ internal fun InstallDialog(state: LauncherState, modal: Modal.Install) {
                 when {
                     state.busy -> Hint(busyText(state), JuxColors.Warning)
                     plan.unfit > 0 -> Hint(
-                        "Ещё ${plan.unfit} ${plural(plan.unfit, "сборка не подходит", "сборки не подходят", "сборок не подходят")} " +
-                            "по версии игры или загрузчику",
+                        "Ещё ${plan.unfit} ${plural(plan.unfit, "сборка не подходит", "сборки не подходят", "сборок не подходят")}",
                     )
                     else -> Hint(
                         when (plan.kind) {
                             ContentKind.MOD -> "Нужные ему моды поставятся сами"
-                            ContentKind.SHADER -> "Шейдеры работают через Iris, он поставится сам"
-                            ContentKind.RESOURCE_PACK -> "Ресурспак сразу включится в настройках игры"
+                            ContentKind.SHADER -> "Iris поставится сам"
+                            ContentKind.RESOURCE_PACK -> "Сразу включится в игре"
                         },
                     )
                 }
@@ -318,7 +316,7 @@ private fun Hint(text: String, color: Color = JuxColors.TextMuted) {
 }
 
 private fun busyText(state: LauncherState): String =
-    "Дождись окончания загрузки ${state.busyEntry?.label.orEmpty()}".trimEnd()
+    "Дождись загрузки ${state.busyEntry?.label.orEmpty()}".trimEnd()
 
 private fun kindLabel(content: LinkContent): String = when (content) {
     LinkContent.MOD -> "Мод"

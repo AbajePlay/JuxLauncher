@@ -102,9 +102,9 @@ private val ContentKind.title: String
 
 private val ContentKind.searchHint: String
     get() = when (this) {
-        ContentKind.MOD -> "Найти мод: Sodium, JEI, Xaero's Minimap…"
-        ContentKind.SHADER -> "Найти шейдер: Complementary, BSL, Photon…"
-        ContentKind.RESOURCE_PACK -> "Найти ресурспак: Fresh Animations, Faithful…"
+        ContentKind.MOD -> "Найти мод"
+        ContentKind.SHADER -> "Найти шейдер"
+        ContentKind.RESOURCE_PACK -> "Найти ресурспак"
     }
 
 private class PacksModel(private val scope: CoroutineScope) {
@@ -162,7 +162,7 @@ private class ContentModel(
 
     private suspend fun scanAll(): Map<ContentKind, List<InstalledItem>> =
         ContentKind.entries.associateWith { kind ->
-            ModManager.scan(dir, loader, gameVersion, kind, withUpdates = kind == ContentKind.MOD && loader.isModded)
+            ModManager.scan(dir, loader, gameVersion, kind, withUpdates = kind == ContentKind.MOD && loader.hasMods)
         }
 
     fun install(kind: ContentKind, hit: Modrinth.SearchHit) = work(hit.projectId) {
@@ -244,7 +244,7 @@ fun CatalogScreen(state: LauncherState) {
     val target = state.catalogTarget ?: state.currentEntry()
     val tabs = listOfNotNull(
         CatalogTab.PACKS,
-        CatalogTab.MODS.takeIf { target?.loader?.isModded == true },
+        CatalogTab.MODS.takeIf { target?.loader?.hasMods == true },
         CatalogTab.SHADERS.takeIf { target != null },
         CatalogTab.RESOURCE_PACKS.takeIf { target != null },
         CatalogTab.INSTALLED.takeIf { target != null },
@@ -292,7 +292,7 @@ private fun ColumnScope.PacksTab(state: LauncherState, model: PacksModel) {
     SearchField(
         value = model.search.query,
         onValueChange = { model.search.query = it },
-        placeholder = "Найти сборку: Fabulously Optimized, Cobblemon…",
+        placeholder = "Найти сборку",
         modifier = Modifier.fillMaxWidth(),
     )
     Spacer(Modifier.height(10.dp))
@@ -310,8 +310,8 @@ private fun PackRow(state: LauncherState, model: PacksModel, hit: Modrinth.Searc
         icon = hit.iconUrl,
         title = hit.title,
         byline = listOfNotNull(
-            hit.author.takeIf { it.isNotBlank() }?.let { "от $it" },
-            "${formatCount(hit.downloads)} скачиваний",
+            hit.author.takeIf { it.isNotBlank() },
+            "${formatCount(hit.downloads)} загрузок",
             listOfNotNull(loaderOf(hit)?.label, hit.versions.lastOrNull()).joinToString(" ").ifBlank { null },
         ).joinToString(" · "),
         details = hit.description,
@@ -333,7 +333,7 @@ private fun PackRow(state: LauncherState, model: PacksModel, hit: Modrinth.Searc
 }
 
 private fun loaderOf(hit: Modrinth.SearchHit): LoaderKind? =
-    LoaderKind.entries.firstOrNull { it.isModded && it.name.lowercase() in hit.categories }
+    LoaderKind.entries.firstOrNull { it.hasMods && it.name.lowercase() in hit.categories }
 
 @Composable
 private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, model: ContentModel, tab: CatalogTab) {
@@ -356,8 +356,8 @@ private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, m
         kind == null -> ListBox(Modifier.weight(1f)) { InstalledList(state, target, model, it) }
         kind == ContentKind.SHADER && !state.supportsShaders(target) -> ListBox(Modifier.weight(1f)) {
             ListHint(
-                if (target.loader == LoaderKind.FORGE) "Шейдеры работают через Iris, а для Forge его нет. Выбери версию с Fabric или NeoForge."
-                else "Шейдерам нужен Fabric, а он пока не поддерживает ${target.id}."
+                if (target.loader == LoaderKind.FORGE) "Шейдеры не работают с Forge — выбери Fabric или NeoForge"
+                else "Fabric пока не поддерживает ${target.id} — шейдеров нет"
             )
         }
         else -> {
@@ -405,8 +405,8 @@ private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.
     ContentRow(
         icon = hit.iconUrl,
         title = hit.title,
-        byline = hit.author.takeIf { it.isNotBlank() }?.let { "от $it · ${formatCount(hit.downloads)} скачиваний" }
-            ?: "${formatCount(hit.downloads)} скачиваний",
+        byline = hit.author.takeIf { it.isNotBlank() }?.let { "$it · ${formatCount(hit.downloads)} загрузок" }
+            ?: "${formatCount(hit.downloads)} загрузок",
         details = hit.description,
         onOpen = { Shell.browse(kind.page(hit.slug.ifBlank { hit.projectId })) },
     ) {
@@ -425,12 +425,12 @@ private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.
 
 @Composable
 private fun InstalledList(state: LauncherState, target: VersionEntry, model: ContentModel, listState: LazyListState) {
-    val kinds = listOfNotNull(ContentKind.MOD.takeIf { target.loader.isModded }, ContentKind.SHADER, ContentKind.RESOURCE_PACK)
+    val kinds = listOfNotNull(ContentKind.MOD.takeIf { target.loader.hasMods }, ContentKind.SHADER, ContentKind.RESOURCE_PACK)
     val sections = kinds.map { it to model.installed[it].orEmpty() }.filter { it.second.isNotEmpty() }
     when {
         !model.scanned -> ListHint("Смотрю, что стоит в ${target.label}…")
-        sections.isEmpty() -> ListHint("Пока ничего не установлено. Найди моды, шейдеры и ресурспаки в каталоге.", "Открыть каталог") {
-            state.catalogTab = if (target.loader.isModded) CatalogTab.MODS else CatalogTab.SHADERS
+        sections.isEmpty() -> ListHint("Пока пусто", "Открыть каталог") {
+            state.catalogTab = if (target.loader.hasMods) CatalogTab.MODS else CatalogTab.SHADERS
         }
         else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             sections.forEach { (kind, items) ->
@@ -457,7 +457,7 @@ private fun InstalledRow(model: ContentModel, item: InstalledItem) {
         icon = item.iconUrl,
         title = item.title,
         byline = listOfNotNull(item.versionNumber.takeIf { it.isNotBlank() }, item.fileName).joinToString(" · "),
-        details = update?.let { "Доступно обновление: ${it.versionNumber}" },
+        details = update?.let { "Обновление: ${it.versionNumber}" },
         detailsAccent = update != null,
         dimmed = !item.enabled,
         badge = if (locked) "FPS-буст" else null,
@@ -470,7 +470,7 @@ private fun InstalledRow(model: ContentModel, item: InstalledItem) {
             JuxSwitch(item.enabled, enabled = !busy && !locked) { model.toggle(item, it) }
         }
         Spacer(Modifier.width(4.dp))
-        WithTooltip(if (locked) "Выключи FPS-буст, чтобы убрать его моды" else "Удалить") {
+        WithTooltip(if (locked) "Мод FPS-буста" else "Удалить") {
             IconButton(onClick = { model.remove(item) }, enabled = !busy && !locked, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Default.Delete,

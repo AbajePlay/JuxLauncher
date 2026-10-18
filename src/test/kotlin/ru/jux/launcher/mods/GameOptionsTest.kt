@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import ru.jux.launcher.meta.LoaderKind
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -40,6 +41,17 @@ class GameOptionsTest {
         assertEquals("ComplementaryReimagined_r5.9.3.zip", GameOptions.activeShader(game))
         GameOptions.setShader(game, null)
         assertNull(GameOptions.activeShader(game))
+    }
+
+    @Test
+    fun `optifine keeps its shader in its own file`(@TempDir game: Path) {
+        GameOptions.setShader(game, "BSL.zip")
+        assertEquals("BSL.zip", GameOptions.activeShader(game, LoaderKind.OPTIFINE))
+        assertTrue(game.resolve("optionsshaders.txt").exists())
+
+        game.resolve("optionsshaders.txt").writeText("shaderPack=OFF\n")
+        assertNull(GameOptions.activeShader(game, LoaderKind.OPTIFINE), "switched off in the game")
+        assertEquals("BSL.zip", GameOptions.activeShader(game), "iris has its own choice")
     }
 
     @Test

@@ -154,7 +154,7 @@ private fun NoticeCard(state: LauncherState, notice: Notice, fresh: Boolean) {
                         JuxButton(
                             noticeActionLabel(action),
                             onClick = { state.runAction(notice, action) },
-                            style = if (action == NoticeAction.FIX_MODS) ButtonStyle.PRIMARY else ButtonStyle.SECONDARY,
+                            style = if (action.fix) ButtonStyle.PRIMARY else ButtonStyle.SECONDARY,
                             enabled = !state.busy || action == NoticeAction.LOGS,
                             icon = noticeActionIcon(action),
                         )
@@ -183,7 +183,7 @@ private fun EmptyNotices() {
             Text("Пока тихо", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = JuxColors.Text)
             Spacer(Modifier.height(6.dp))
             Text(
-                "Если игра упадёт или мод не обновится, здесь будет понятно, что случилось и как это исправить.",
+                "Здесь появятся ошибки и подсказки",
                 style = MaterialTheme.typography.bodyMedium,
                 color = JuxColors.TextMuted,
                 textAlign = TextAlign.Center,

@@ -26,6 +26,7 @@ import ru.jux.launcher.link.LaunchLink
 import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.meta.LoaderKind
+import ru.jux.launcher.meta.OptiFineRepository
 import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.online.OnlineCount
 import ru.jux.launcher.online.OnlineCounter
@@ -62,6 +63,7 @@ fun main(args: Array<String>) {
     }
     val preloaded = runBlocking { Preloader.run { _, _ -> } }
         .copy(manifestStale = false, loaderSupportStale = false)
+        .let { it.copy(loaderSupport = it.loaderSupport.copy(optifine = runCatching { OptiFineRepository.builds().map { b -> b.gameVersion }.toSet() }.getOrDefault(emptySet()))) }
     val state = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded)
     OnlineCounter.show(OnlineCount(online = 128, playing = 47))
 
@@ -197,6 +199,7 @@ fun main(args: Array<String>) {
     render("home-pack", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
     withPack.openCatalog(tab = CatalogTab.PACKS)
     render("catalog-packs-installed", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
+    renderNewFeatures(preloaded, ::render)
     exitProcess(0)
 }
 

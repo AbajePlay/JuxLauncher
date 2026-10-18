@@ -12,6 +12,8 @@ import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.PrettyJson
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.writeAtomically
+import ru.jux.launcher.instance.InstanceStore
+import ru.jux.launcher.launch.GameLauncher
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.Modrinth
@@ -62,7 +64,10 @@ data class Modpack(
     val versionId: String,
     val iconUrl: String? = null,
     val files: List<String> = emptyList(),
-)
+) {
+    // Сборку собрал сам игрок: у неё нет проекта на Modrinth, обновлять и переустанавливать её оттуда нечего
+    val custom: Boolean get() = projectId.isBlank()
+}
 
 data class PackSource(
     val id: String,
@@ -93,8 +98,54 @@ object Modpacks {
         "forge" to LoaderKind.FORGE,
     )
     private val UNSAFE_ID = Regex("[^a-z0-9._-]+")
+    private const val ICON = "icon.png"
+    private const val MAX_ICON_BYTES = 2L shl 20
+    private val TRANSLIT = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя".toList().zip(
+        listOf("a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s", "t", "u", "f", "h", "ts", "ch", "sh", "sch", "", "y", "", "e", "yu", "ya"),
+    ).toMap()
+    // Логи, бэкапы и настройки буста не переносим: у копии своя история и свой буст
+    private val NOT_COPIED = setOf(MANIFEST, ICON, "logs", "crash-reports", "backups", GameLauncher.GAME_LOG, InstanceStore.FILE_NAME)
 
     fun dirOf(pack: Modpack): Path = Settings.packsDir().resolve(pack.id)
+
+    fun iconOf(pack: Modpack): Path = dirOf(pack).resolve(ICON)
+
+    fun create(title: String, gameVersion: String, loader: LoaderKind, loaderVersion: String? = null, copyFrom: Path? = null): Modpack {
+        val name = title.trim().ifEmpty { throw IOException("Дай сборке название") }
+        val id = freeFolder(name)
+        val dir = Settings.packsDir().resolve(id)
+        if (copyFrom != null && copyFrom.isDirectory()) copyContent(copyFrom, dir)
+        val pack = Modpack(id, name, "", gameVersion, loader, loaderVersion, projectId = "", versionId = "")
+        save(pack)
+        Log.info("custom pack $name created in $dir from ${copyFrom ?: "scratch"}: $gameVersion ${loader.label}")
+        return pack
+    }
+
+    fun rename(pack: Modpack, title: String): Modpack {
+        val name = title.trim().ifEmpty { throw IOException("Название не может быть пустым") }
+        return pack.copy(title = name).also(::save)
+    }
+
+    fun setIcon(pack: Modpack, image: Path) {
+        if (Files.size(image) > MAX_ICON_BYTES) throw IOException("Картинка больше 2 МБ — выбери поменьше")
+        Files.copy(image, iconOf(pack), StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    private fun save(pack: Modpack) = dirOf(pack).resolve(MANIFEST).writeAtomically(PrettyJson.encodeToString(pack))
+
+    private fun copyContent(from: Path, to: Path) {
+        to.createDirectories()
+        from.listDirectoryEntries().filter { it.name !in NOT_COPIED }.forEach { item ->
+            item.toFile().copyRecursively(to.resolve(item.name).toFile(), overwrite = true)
+        }
+    }
+
+    internal fun freeFolder(title: String): String {
+        val latin = title.lowercase().map { TRANSLIT[it] ?: it.toString() }.joinToString("")
+        val base = latin.replace(UNSAFE_ID, "-").trim('-', '.').ifBlank { "pack" }
+        return generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base-$it" }
+            .first { !Settings.packsDir().resolve(it).exists() }
+    }
 
     fun list(): List<Modpack> = runCatching {
         val root = Settings.packsDir()

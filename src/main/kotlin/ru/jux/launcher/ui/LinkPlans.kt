@@ -29,8 +29,8 @@ internal fun LauncherState.joinModal(link: LaunchLink.Join): Modal.Join {
     }
     val note = when {
         link.version == null || known != null -> null
-        latest == null -> "Список версий не загрузился. Проверь интернет и открой ссылку ещё раз"
-        else -> "Версии ${link.version} нет в списке Mojang — предлагаю последнюю, $latest"
+        latest == null -> "Нет списка версий — проверь интернет"
+        else -> "Версии ${link.version} нет — предлагаю $latest"
     }
     return Modal.Join(link, choices, note)
 }
@@ -40,7 +40,7 @@ internal suspend fun LauncherState.installPlan(link: LaunchLink.Install): Instal
         withContext(Dispatchers.IO) { Modrinth.project(link.project) }
     } catch (e: HttpStatusException) {
         if (e.code != 404) throw e
-        return InstallPlan.Failed("На Modrinth нет «${link.title}»: проект удалили или ссылка устарела")
+        return InstallPlan.Failed("«${link.title}» нет на Modrinth")
     }
     if (link.content == LinkContent.MODPACK) return InstallPlan.Pack(project, packs.firstOrNull { it.projectId == project.id })
     val kind = link.content.content ?: return InstallPlan.Failed("Датапаки ставятся в мир, а не в сборку")
@@ -70,15 +70,14 @@ internal suspend fun LauncherState.installPlan(link: LaunchLink.Install): Instal
     if (targets.isEmpty()) {
         val wanted = listOfNotNull(link.version?.let { "Minecraft $it" }, link.loader?.replaceFirstChar { it.uppercase() })
         return InstallPlan.Failed(
-            "У ${project.title} нет файла под ${wanted.joinToString(" ").ifEmpty { "твои сборки" }}. " +
-                "Посмотри доступные версии на Modrinth",
+            "У ${project.title} нет версии под ${wanted.joinToString(" ").ifEmpty { "твои сборки" }}",
         )
     }
     return InstallPlan.Content(project, kind, targets, unfit = candidates.size - compatible.size)
 }
 
 private fun LauncherState.canHold(entry: VersionEntry, kind: ContentKind): Boolean = when (kind) {
-    ContentKind.MOD -> entry.loader.isModded
+    ContentKind.MOD -> entry.loader.hasMods
     ContentKind.SHADER -> supportsShaders(entry)
     ContentKind.RESOURCE_PACK -> true
 }

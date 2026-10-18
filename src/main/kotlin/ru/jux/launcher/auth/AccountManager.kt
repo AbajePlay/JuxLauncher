@@ -80,7 +80,7 @@ object AccountManager {
 
         val refreshToken = TokenStore.reveal(account.refreshToken)
         if (refreshToken.isBlank()) {
-            throw AuthException("Сессия ${account.name} истекла — войдите в аккаунт заново")
+            throw AuthException("Сессия ${account.name} истекла — войди заново")
         }
 
         val renewed = MicrosoftAuth().refresh(refreshToken, onStage)

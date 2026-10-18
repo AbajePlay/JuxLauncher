@@ -14,7 +14,17 @@ import kotlin.io.path.readText
 enum class NoticeLevel { ERROR, WARNING, INFO, SUCCESS }
 
 @Serializable
-enum class NoticeAction { LOGS, MODS, FIX_MODS, PLAY_ANYWAY }
+enum class NoticeAction(val fix: Boolean = false) {
+    LOGS,
+    MODS,
+    FIX_MODS(fix = true),
+    PLAY_ANYWAY,
+    MORE_MEMORY(fix = true),
+    RESET_MEMORY(fix = true),
+    DISABLE_MOD(fix = true),
+    INSTALL_MOD(fix = true),
+    VERIFY_FILES(fix = true),
+}
 
 @Serializable
 data class Notice(
@@ -27,6 +37,7 @@ data class Notice(
     val entryLabel: String? = null,
     val actions: List<NoticeAction> = emptyList(),
     val count: Int = 1,
+    val actionTarget: String? = null,
 )
 
 object Notices {
@@ -65,14 +76,15 @@ object Notices {
         entryLabel: String? = null,
         actions: List<NoticeAction> = emptyList(),
         now: Long = System.currentTimeMillis(),
+        actionTarget: String? = null,
     ): Pair<Notice, Boolean> {
         val current = _items.value
         val repeat = current.take(10).firstOrNull {
             it.text == text && it.title == title && it.entryKey == entryKey && now - it.at in 0..REPEAT_WINDOW_MILLIS
         }
         val id = maxOf(now, (current.maxOfOrNull(Notice::id) ?: 0) + 1)
-        val notice = repeat?.copy(id = id, at = now, count = repeat.count + 1, actions = actions)
-            ?: Notice(id, level, text, title, now, entryKey, entryLabel, actions)
+        val notice = repeat?.copy(id = id, at = now, count = repeat.count + 1, actions = actions, actionTarget = actionTarget)
+            ?: Notice(id, level, text, title, now, entryKey, entryLabel, actions, actionTarget = actionTarget)
         _items.value = (listOf(notice) + current.filter { it.id != repeat?.id }).take(LIMIT)
         save()
         return notice to (repeat != null)

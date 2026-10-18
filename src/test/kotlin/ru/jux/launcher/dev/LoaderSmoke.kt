@@ -6,6 +6,7 @@ import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.launch.GameLauncher
 import ru.jux.launcher.meta.LoaderKind
+import ru.jux.launcher.meta.RuleEnvironment
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
@@ -52,6 +53,23 @@ private fun smoke(version: String, loader: LoaderKind): Outcome {
     val started = System.currentTimeMillis()
     val gameDir = Settings.gameDir(version, loader).also { it.createDirectories() }
     gameDir.resolve("options.txt").takeUnless { it.exists() }?.writeText(QUIET_OPTIONS)
+
+    // Без окна игры: ставит всё нужное и показывает, с чем игра запустилась бы
+    if (System.getProperty("smoke.prepareOnly") == "true") {
+        return try {
+            val prepared = runBlocking { GameLauncher.prepare(version, loader, gameDir, onStage = { println("  $it") }) }
+            val json = prepared.installed.json
+            val tweaks = json.arguments?.game.orEmpty().flatMap { it.resolve(RuleEnvironment.current) } +
+                json.minecraftArguments.orEmpty().split(' ')
+            val jars = prepared.installed.classpath.map { it.fileName.toString() }
+            val missing = prepared.installed.classpath.filterNot { it.exists() }.map { it.fileName.toString() }
+            println("  id: ${json.id}\n  main: ${json.mainClass}\n  tweaks: ${tweaks.filter { "tweak" in it.lowercase() || "OptiFine" in it }}")
+            println("  classpath: ${jars.filter { "optifine" in it.lowercase() || "launchwrapper" in it }}")
+            Outcome(target, missing.isEmpty(), "prepared ${json.id} in ${seconds(started)} s" + if (missing.isEmpty()) "" else ", missing $missing")
+        } catch (e: Throwable) {
+            Outcome(target, false, "prepare failed: ${e.message?.lineSequence()?.joinToString(" | ")}")
+        }
+    }
 
     val launch = try {
         runBlocking {

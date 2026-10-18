@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -82,6 +83,11 @@ fun noticeActionLabel(action: NoticeAction): String = when (action) {
     NoticeAction.MODS -> "Моды"
     NoticeAction.FIX_MODS -> "Исправить"
     NoticeAction.PLAY_ANYWAY -> "Запустить всё равно"
+    NoticeAction.MORE_MEMORY -> "Добавить памяти"
+    NoticeAction.RESET_MEMORY -> "Вернуть память"
+    NoticeAction.DISABLE_MOD -> "Выключить мод"
+    NoticeAction.INSTALL_MOD -> "Поставить мод"
+    NoticeAction.VERIFY_FILES -> "Проверить файлы"
 }
 
 fun noticeActionIcon(action: NoticeAction): ImageVector = when (action) {
@@ -89,6 +95,10 @@ fun noticeActionIcon(action: NoticeAction): ImageVector = when (action) {
     NoticeAction.MODS -> JuxIcons.Extension
     NoticeAction.FIX_MODS -> Icons.Default.Build
     NoticeAction.PLAY_ANYWAY -> Icons.Default.PlayArrow
+    NoticeAction.MORE_MEMORY, NoticeAction.RESET_MEMORY -> JuxIcons.Memory
+    NoticeAction.DISABLE_MOD -> Icons.Default.Build
+    NoticeAction.INSTALL_MOD -> JuxIcons.Download
+    NoticeAction.VERIFY_FILES -> Icons.Default.Refresh
 }
 
 fun formatNoticeDay(at: Long, today: LocalDate = LocalDate.now()): String {
@@ -176,7 +186,7 @@ private fun ToastCard(state: LauncherState, notice: Notice) {
                             noticeActionLabel(action),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (action == NoticeAction.FIX_MODS) JuxColors.Accent else noticeTone(notice.level),
+                            color = if (action.fix) JuxColors.Accent else noticeTone(notice.level),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(JuxDimens.CornerSmall))
                                 .clickable { state.runAction(notice, action) }

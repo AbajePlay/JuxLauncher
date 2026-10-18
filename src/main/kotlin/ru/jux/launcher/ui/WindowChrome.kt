@@ -22,20 +22,21 @@ object WindowChrome {
     private const val CAPTION_COLOR = 35
     private const val TEXT_COLOR = 36
 
-    fun applyDark(window: Window) {
+    fun applyTheme(window: Window) {
         if (!Shell.isWindows) return
         runCatching {
             val hwnd = Native.getComponentPointer(window) ?: return
             val dwm = Native.load("dwmapi", Dwmapi::class.java)
 
-            if (dwm.set(hwnd, USE_IMMERSIVE_DARK_MODE, 1) != 0) {
-                dwm.set(hwnd, USE_IMMERSIVE_DARK_MODE_LEGACY, 1)
+            val dark = if (JuxColors.isDark) 1 else 0
+            if (dwm.set(hwnd, USE_IMMERSIVE_DARK_MODE, dark) != 0) {
+                dwm.set(hwnd, USE_IMMERSIVE_DARK_MODE_LEGACY, dark)
             }
 
             dwm.set(hwnd, CAPTION_COLOR, colorRef(JuxColors.Background.toArgbInt()))
             dwm.set(hwnd, TEXT_COLOR, colorRef(JuxColors.Text.toArgbInt()))
             dwm.set(hwnd, BORDER_COLOR, colorRef(JuxColors.Background.toArgbInt()))
-            Log.debug("dark window chrome applied")
+            Log.debug("window chrome applied, dark=$dark")
         }.onFailure { Log.debug("window chrome unavailable: ${it.message}") }
     }
 

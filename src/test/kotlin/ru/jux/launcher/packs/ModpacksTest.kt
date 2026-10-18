@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import ru.jux.launcher.core.Settings
+import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.sha1Of
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.meta.LoaderKind
@@ -152,5 +153,35 @@ class ModpacksTest {
         } finally {
             server.stop(0)
         }
+    }
+
+    @Test
+    fun `a custom pack copies the content but not the history`() {
+        Storage.deleteTree(Settings.packsDir())
+        val source = Settings.gameDir("9.9.9", LoaderKind.FABRIC).createDirectories()
+        source.resolve("mods").createDirectories().resolve("sodium.jar").writeText("jar")
+        source.resolve("saves/World").createDirectories().resolve("level.dat").writeText("level")
+        source.resolve("options.txt").writeText("lang:ru_ru")
+        source.resolve("logs").createDirectories().resolve("latest.log").writeText("old log")
+        source.resolve("jux-instance.json").writeText("""{"fpsBoost":true}""")
+
+        val pack = Modpacks.create("Выживание с друзьями", "9.9.9", LoaderKind.FABRIC, copyFrom = source)
+        val dir = Modpacks.dirOf(pack)
+
+        assertTrue(pack.custom)
+        assertEquals("vyzhivanie-s-druzyami", pack.id)
+        assertEquals("Выживание с друзьями", pack.title)
+        assertEquals("jar", dir.resolve("mods/sodium.jar").readText())
+        assertEquals("level", dir.resolve("saves/World/level.dat").readText())
+        assertEquals("lang:ru_ru", dir.resolve("options.txt").readText())
+        assertFalse(dir.resolve("logs").exists())
+        assertFalse(dir.resolve("jux-instance.json").exists(), "the copy starts without the boost of the original")
+        assertTrue(Modpacks.list().any { it.id == pack.id })
+
+        val second = Modpacks.create("Выживание с друзьями", "9.9.9", LoaderKind.VANILLA)
+        assertTrue(second.id != pack.id, "two packs with one name get their own folders")
+        assertEquals("Новое имя", Modpacks.rename(pack, "  Новое имя ").title)
+        assertEquals("Новое имя", Modpacks.read(dir)?.title)
+        assertThrows<IOException> { Modpacks.create("   ", "9.9.9", LoaderKind.VANILLA) }
     }
 }
