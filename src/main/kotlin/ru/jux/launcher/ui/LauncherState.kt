@@ -1,9 +1,11 @@
 package ru.jux.launcher.ui
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.awt.awtEventOrNull
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.Key
@@ -26,6 +28,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.activity.ActivityStats
@@ -63,6 +66,7 @@ import ru.jux.launcher.instance.WorldBackup
 import ru.jux.launcher.instance.WorldInfo
 import ru.jux.launcher.instance.Worlds
 import ru.jux.launcher.launch.GameLauncher
+import ru.jux.launcher.launch.GameWindow
 import ru.jux.launcher.link.LaunchLink
 import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.logs.CrashHints
@@ -74,6 +78,9 @@ import ru.jux.launcher.meta.ManifestVersion
 import ru.jux.launcher.meta.VersionKind
 import ru.jux.launcher.meta.VersionManifest
 import ru.jux.launcher.mods.ContentKind
+import ru.jux.launcher.mods.GameOptions
+import ru.jux.launcher.mods.GraphicsPreset
+import ru.jux.launcher.mods.InstalledItem
 import ru.jux.launcher.mods.ModCompat
 import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.Modrinth
@@ -84,6 +91,9 @@ import ru.jux.launcher.net.DownloadProgress
 import ru.jux.launcher.net.HttpStatusException
 import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.packs.Modpacks
+import ru.jux.launcher.packs.PackImport
+import ru.jux.launcher.packs.PackLinks
+import ru.jux.launcher.packs.PackShare
 import ru.jux.launcher.packs.PackSource
 import ru.jux.launcher.servers.ServerEntry
 import ru.jux.launcher.servers.ServerList
@@ -98,6 +108,8 @@ import ru.jux.launcher.update.Updater
 
 enum class Screen { HOME, CATALOG, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
 
+// Неизменяемые: строка списка с тем же содержимым пропускает перерисовку при пересборке групп
+@Immutable
 data class VersionEntry(
     val version: ManifestVersion,
     val loader: LoaderKind,
@@ -112,6 +124,7 @@ data class VersionEntry(
 private const val PACK_KEY = "pack:"
 val PACKS_GROUP: String get() = tr("Сборки", "Packs")
 
+@Immutable
 data class VersionGroup(
     val key: String,
     val entries: List<VersionEntry>,
@@ -132,6 +145,27 @@ sealed interface Modal {
     data class Install(val link: LaunchLink.Install, val plan: InstallPlan? = null) : Modal
     data class WorldList(val entry: VersionEntry) : Modal
     data class PackEditor(val mode: PackMode) : Modal
+    data class Share(val entry: VersionEntry) : Modal
+    data class Graphics(val entry: VersionEntry) : Modal
+    data class ImportPack(val link: LaunchLink.SharedPack, val plan: PackImport? = null, val error: String? = null) : Modal
+}
+
+/** Запущенный клиент игры: их может быть несколько сразу, в том числе одной сборки под разными аккаунтами. */
+class RunningGame(
+    val entry: VersionEntry,
+    val process: Process,
+    val logFile: Path,
+    val startedAt: Long,
+    presence: Presence.Playing,
+) {
+    /** Окно игры уже на экране; до этого игра только грузится. */
+    var opened by mutableStateOf(false)
+        internal set
+
+    // Статус Discord этого клиента: когда другой клиент закроется, показываем его
+    @Volatile
+    var presence: Presence.Playing = presence
+        internal set
 }
 
 sealed interface PackMode {
@@ -187,6 +221,10 @@ class LauncherState(
     var packUpdates by mutableStateOf<Map<String, PackSource>>(emptyMap())
         private set
 
+    /** Сколько модов можно обновить, по ключу сборки. */
+    var modUpdates by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
+
     var installingPack by mutableStateOf<String?>(null)
         private set
 
@@ -233,6 +271,13 @@ class LauncherState(
     var openMenus by mutableStateOf(0)
         private set
 
+    /** Окно не свёрнуто. Пинг серверов и обновление активности раз в минуту ждут его: свёрнутым их никто не видит. */
+    var windowShown by mutableStateOf(true)
+
+    suspend fun awaitWindowShown() {
+        snapshotFlow { windowShown }.first { it }
+    }
+
     val searchFocus = FocusRequester()
     var searchFocused by mutableStateOf(false)
 
@@ -242,18 +287,16 @@ class LauncherState(
     var serverStatus by mutableStateOf<Map<String, PingState>>(emptyMap())
         private set
 
-    var gameRunning by mutableStateOf(false)
-        private set
+    var games by mutableStateOf<List<RunningGame>>(emptyList())
+        internal set
+
+    val gameRunning: Boolean get() = games.isNotEmpty()
 
     val listState = LazyListState()
 
     var onGameStarted: (Process) -> Unit = {}
 
     var onQuit: () -> Unit = {}
-
-    private class LastLaunch(val entry: VersionEntry, val logFile: Path, val at: Long)
-
-    private var lastLaunch: LastLaunch? = null
 
     private var job: Job? = null
     private var jobToken: Any? = null
@@ -534,14 +577,20 @@ class LauncherState(
         finishJob()
     }
 
-    fun gameExited(exitCode: Int) {
-        gameRunning = false
-        if (exitCode == 0) return
-        val launched = lastLaunch ?: return
+    /** Клиент [process] закрылся. true — лаунчер стоит показать: это была ошибка или игр больше не осталось. */
+    fun gameExited(process: Process, exitCode: Int): Boolean {
+        val launched = games.firstOrNull { it.process === process } ?: return games.isEmpty()
+        games = games - launched
+        val left = games.lastOrNull()
+        if (left != null) DiscordPresence.show(left.presence) else DiscordPresence.show(Presence.Launcher)
+        OnlineCounter.setPlaying(left != null)
+        val opened = launched.opened
+        // Нулевой код — обычный выход, если только окно игры так и не появилось
+        if (exitCode == 0 && opened) return left == null
         val entry = launched.entry
-        Log.warn("game exited with code $exitCode")
+        Log.warn(if (opened) "game exited with code $exitCode" else "game exited with code $exitCode before its window opened")
         val crashReport = GameLogs.locate(LogSource.CRASH, gameDirOf(entry))
-            ?.takeIf { runCatching { it.getLastModifiedTime().toMillis() >= launched.at }.getOrDefault(false) }
+            ?.takeIf { runCatching { it.getLastModifiedTime().toMillis() >= launched.startedAt }.getOrDefault(false) }
         val diagnosis = CrashHints.diagnose(launched.logFile, crashReport, entry.loader, entry.id, exitCode)
         val actions = buildList {
             diagnosis.fix?.let { add(it.action) }
@@ -552,8 +601,15 @@ class LauncherState(
                 else -> add(NoticeAction.MODS)
             }
         }
-        fail(diagnosis.reason, entry, tr("Игра закрылась с ошибкой", "Game exited with an error"), actions, diagnosis.fix?.target)
+        val title = if (opened) tr("Игра закрылась с ошибкой", "Game exited with an error") else tr("Игра не открылась", "The game didn't open")
+        fail(diagnosis.reason, entry, title, actions, diagnosis.fix?.target)
+        return true
     }
+
+    fun isRunning(entry: VersionEntry): Boolean = games.any { it.entry.key == entry.key }
+
+    /** Клиент этой сборки запущен, но окна ещё нет: второй до этого не запускаем, иначе повторные нажатия плодят клиенты. */
+    fun isStarting(entry: VersionEntry): Boolean = games.any { it.entry.key == entry.key && !it.opened }
 
     private fun hasModConflicts(entry: VersionEntry): Boolean =
         runCatching { ModCompat.conflictsIn(ModManager.modsDir(gameDirOf(entry))).isNotEmpty() }.getOrDefault(false)
@@ -722,6 +778,80 @@ class LauncherState(
         }
     }
 
+    /** Сборки, где моды ставил сам игрок: у сборок с Modrinth моды обновляются вместе со сборкой. */
+    private fun modTargets(): List<VersionEntry> =
+        catalogTargets().filter { it.loader.hasMods && it.pack?.custom != false }
+
+    private suspend fun pendingModUpdates(entry: VersionEntry): List<InstalledItem> =
+        ModManager.scan(gameDirOf(entry), entry.loader, entry.id, ContentKind.MOD, withUpdates = true).filter { it.canUpdate }
+
+    /** Тихо проверяет, вышли ли новые версии модов; результат виден значком у сборки. */
+    fun checkModUpdates() {
+        scope.launch {
+            delay(MOD_CHECK_DELAY_MILLIS)
+            for (entry in modTargets()) {
+                try {
+                    if (withContext(Dispatchers.IO) { ModManager.count(gameDirOf(entry)) } == 0) continue
+                    setModUpdates(entry, pendingModUpdates(entry).size)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.warn("mod update check for ${entry.label}: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /** Каталог только что пересканировал моды [entry] — значок должен показывать то же самое. */
+    fun modsScanned(entry: VersionEntry, mods: List<InstalledItem>) = setModUpdates(entry, mods.count { it.canUpdate })
+
+    private fun setModUpdates(entry: VersionEntry, count: Int) {
+        if ((modUpdates[entry.key] ?: 0) != count) modUpdates = modUpdates + (entry.key to count)
+    }
+
+    fun updateMods(entry: VersionEntry) {
+        if (busy) return
+        if (isRunning(entry)) {
+            fail(tr("Закрой игру — моды сейчас заняты", "Close the game — the mods are in use"), entry)
+            return
+        }
+        startJob(entry, "mod updates") {
+            stageChanged(tr("Ищу обновления модов", "Looking for mod updates"))
+            val mods = pendingModUpdates(entry)
+            if (mods.isEmpty()) {
+                setModUpdates(entry, 0)
+                inform(tr("Все моды уже последних версий", "All mods are up to date"), entry, level = NoticeLevel.INFO)
+                return@startJob
+            }
+            backupWorldsBeforeChange(entry)
+            stageChanged(tr("Обновляю моды: ${mods.size}", "Updating mods: ${mods.size}"))
+            val report = try {
+                ModManager.updateAll(mods) { progress = it }
+            } finally {
+                modsChanged(entry)
+            }
+            setModUpdates(entry, pendingModUpdates(entry).size)
+            val done = tr("Обновлено модов: ${report.updated}", "Mods updated: ${report.updated}")
+            if (report.skipped.isEmpty()) {
+                inform(done, entry, tr("Моды обновлены", "Mods updated"))
+            } else {
+                fail((listOf(done) + report.skipped).joinToString("\n"), entry, tr("Обновилось не всё", "Not everything was updated"), listOf(NoticeAction.MODS))
+            }
+        }
+    }
+
+    fun applyGraphics(entry: VersionEntry, preset: GraphicsPreset) {
+        if (isRunning(entry)) {
+            fail(tr("Закрой игру — при выходе она перезапишет настройки", "Close the game — it overwrites the settings when it exits"), entry)
+            return
+        }
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { GameOptions.applyPreset(gameDirOf(entry), entry.id, preset) } }
+                .onSuccess { inform(preset.summary.replaceFirstChar { it.uppercase() }, entry, tr("Графика: ${preset.title.lowercase()}", "Graphics: ${preset.title.lowercase()}")) }
+                .onFailure { fail(it.message, entry, tr("Настройки графики не записались", "Graphics settings were not saved")) }
+        }
+    }
+
     fun consumePendingPlay(): Boolean = pendingPlay.also { pendingPlay = false }
 
     fun play(server: ServerEntry? = null, skipModCheck: Boolean = false) {
@@ -730,6 +860,7 @@ class LauncherState(
             fail(tr("Выбери версию", "Pick a version"))
             return
         }
+        if (isStarting(entry)) return
         val account = selectedAccount.value ?: run {
             fail(tr("Добавь аккаунт", "Add an account"))
             screen = Screen.ACCOUNTS
@@ -756,6 +887,9 @@ class LauncherState(
             }
         }
         server?.let { addToServerList(gameDir, it) }
+        // Второй клиент той же сборки пишет свой лог, иначе перетрёт лог первого
+        val copies = games.count { it.entry.key == entry.key }
+        val logName = if (copies == 0) GameLauncher.GAME_LOG else GameLauncher.GAME_LOG.replace(".log", "-${copies + 1}.log")
         val notices = ArrayList<String>()
         val result = GameLauncher.launch(
             versionId = entry.id,
@@ -764,6 +898,7 @@ class LauncherState(
             serverAddress = server?.address,
             gameDir = gameDir,
             loaderVersion = entry.pack?.loaderVersion,
+            logName = logName,
             onStage = ::stageChanged,
             onProgress = { progress = it },
             onNotice = { notices += it },
@@ -773,7 +908,6 @@ class LauncherState(
         refreshInstalled()
         instanceChanged(entry)
         val startedAt = System.currentTimeMillis()
-        lastLaunch = LastLaunch(entry, result.logFile, startedAt)
         val playing = Presence.Playing(
             versionId = entry.id,
             loaderLabel = entry.loader.takeIf { it.isModded }?.label,
@@ -785,9 +919,20 @@ class LauncherState(
         DiscordPresence.show(playing)
         OnlineCounter.setPlaying(true)
         server?.let { ServerJoins.report(it.address) }
-        watchGame(result.process, result.logFile, result.gameDir, playing)
-        gameRunning = true
+        val game = RunningGame(entry, result.process, result.logFile, startedAt, playing)
+        games = games + game
+        watchGame(game, result.gameDir)
+        watchGameWindow(game)
         onGameStarted(result.process)
+    }
+
+    private fun watchGameWindow(game: RunningGame) {
+        scope.launch {
+            if (GameWindow.awaitShown(game.process) && game in games) {
+                Log.info("game window of ${game.entry.label} is open")
+                game.opened = true
+            }
+        }
     }
 
     private suspend fun addToServerList(gameDir: Path, server: ServerEntry) = withContext(Dispatchers.IO) {
@@ -965,7 +1110,7 @@ class LauncherState(
     }
 
     private fun worldJob(entry: VersionEntry, title: String, block: suspend (Path) -> String) {
-        if (gameRunning) {
+        if (isRunning(entry)) {
             fail(tr("Закрой игру — миры заняты", "Close the game — worlds are in use"), entry)
             return
         }
@@ -1029,11 +1174,12 @@ class LauncherState(
         }
     }
 
-    private fun watchGame(process: Process, logFile: Path, gameDir: Path, start: Presence.Playing) {
+    private fun watchGame(game: RunningGame, gameDir: Path) {
+        val process = game.process
         scope.launch(Dispatchers.IO) {
-            val tail = GameEvents.Tail(logFile)
+            val tail = GameEvents.Tail(game.logFile)
             val serverList = ServerList.Guard(gameDir)
-            var shown = start
+            var shown = game.presence
             var iconOf: String? = null
             while (process.isAlive) {
                 delay(GAME_LOG_POLL_MILLIS)
@@ -1052,6 +1198,7 @@ class LauncherState(
                 }
                 if (next != shown && process.isAlive) {
                     shown = next
+                    game.presence = next
                     DiscordPresence.show(next)
                 }
             }
@@ -1068,7 +1215,7 @@ class LauncherState(
         }
         val entry = requested(request) ?: return
         selectEntry(entry)
-        if (gameRunning) inform(tr("Игра уже запущена", "Game is already running"), entry, level = NoticeLevel.INFO) else play()
+        play()
     }
 
     fun playOnServer(server: ServerEntry) {
@@ -1087,8 +1234,42 @@ class LauncherState(
             LaunchLink.Open -> Unit
             is LaunchLink.Join -> modal = joinModal(link)
             is LaunchLink.Install -> showInstall(link)
+            is LaunchLink.SharedPack -> showSharedPack(link)
         }
     }
+
+    private fun showSharedPack(link: LaunchLink.SharedPack) {
+        val shown = Modal.ImportPack(link)
+        modal = shown
+        scope.launch {
+            val resolved = try {
+                shown.copy(plan = PackLinks.resolve(link))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.warn("shared pack unresolved: ${e.message}")
+                shown.copy(error = tr("Modrinth не ответил — проверь интернет", "Modrinth didn't respond — check your connection"))
+            }
+            if (modal === shown) modal = resolved
+        }
+    }
+
+    fun importSharedPack(link: LaunchLink.SharedPack, plan: PackImport) {
+        if (busy) return
+        modal = null
+        startJob(null, "pack import") {
+            stageChanged(tr("Создаю сборку ${link.name}", "Creating the pack ${link.name}"))
+            val pack = PackLinks.install(link, plan, onStage = ::stageChanged, onProgress = { progress = it })
+            reloadPacks()
+            val entry = entryFor(pack)
+            selectEntry(entry)
+            expandedGroups = expandedGroups + PACKS_GROUP
+            inform(PackLinks.summary(link), entry, tr("Сборка «${pack.title}» готова", "Pack “${pack.title}” is ready"))
+        }
+    }
+
+    suspend fun packShare(entry: VersionEntry): PackShare =
+        PackLinks.share(gameDirOf(entry), entry.id, entry.loader, entry.pack, entry.pack?.title ?: entry.label)
 
     private fun showInstall(link: LaunchLink.Install) {
         val shown = Modal.Install(link)
@@ -1108,7 +1289,7 @@ class LauncherState(
     }
 
     fun joinServer(link: LaunchLink.Join, entry: VersionEntry) {
-        if (busy || gameRunning) return
+        if (busy) return
         modal = null
         selectEntry(entry)
         play(ServerEntry(link.title, link.address))
@@ -1221,6 +1402,7 @@ class LauncherState(
             }
             refreshInstalled()
             instanceChanged(entry)
+            if (withGameDir) modUpdates = modUpdates - entry.key
             inform(
                 when {
                     !withGameDir -> tr("Файлы ${entry.label} удалены, миры на месте", "${entry.label} files deleted, worlds kept")
@@ -1247,6 +1429,7 @@ class LauncherState(
             if (Settings.current.lastPack == pack.id) Settings.update { it.copy(lastPack = null) }
             reloadPacks()
             packUpdates = packUpdates - pack.id
+            modUpdates = modUpdates - (PACK_KEY + pack.id)
             inform(if (trashed) tr("Сборка ${pack.title} в корзине", "Pack ${pack.title} moved to trash") else tr("Сборка ${pack.title} удалена", "Pack ${pack.title} deleted"))
         }
     }
@@ -1273,7 +1456,11 @@ class LauncherState(
         else -> true
     }
 
-    fun modsChanged(entry: VersionEntry) = instanceChanged(entry)
+    /** Возвращает новую ревизию, чтобы каталог не сканировал папку второй раз из-за своего же изменения. */
+    fun modsChanged(entry: VersionEntry): Int {
+        instanceChanged(entry)
+        return instanceRevision
+    }
 
     fun openCatalog(entry: VersionEntry? = null, tab: CatalogTab? = null) {
         catalogTarget = entry
@@ -1310,15 +1497,27 @@ class LauncherState(
         openMenus = (openMenus + if (open) 1 else -1).coerceAtLeast(0)
     }
 
-    fun refreshServers() {
-        servers.forEach(::pingServer)
+    private val lastPingAt = HashMap<String, Long>()
+
+    /** [force] — кнопка обновления; без него сервер, пингованный меньше минуты назад, не трогаем (возврат на главную). */
+    fun refreshServers(force: Boolean = true) {
+        val now = System.currentTimeMillis()
+        servers.filter { force || now - (lastPingAt[it.address] ?: 0L) >= SERVER_PING_MILLIS }.forEach(::pingServer)
     }
 
     private fun pingServer(server: ServerEntry) {
+        lastPingAt[server.address] = System.currentTimeMillis()
         if (serverStatus[server.address] !is PingState.Online) setPing(server.address, PingState.Pinging)
         scope.launch {
             val status = ServerPing.ping(server.address)
-            setPing(server.address, status?.let { PingState.Online(it) } ?: PingState.Offline)
+            val previous = (serverStatus[server.address] as? PingState.Online)?.status
+            // Та же иконка сервера — тот же массив: картинка не декодируется заново каждую минуту
+            val stable = if (status != null && previous?.favicon != null && previous.favicon.contentEquals(status.favicon)) {
+                status.withFavicon(previous.favicon)
+            } else {
+                status
+            }
+            setPing(server.address, stable?.let { PingState.Online(it) } ?: PingState.Offline)
         }
     }
 
@@ -1427,6 +1626,9 @@ class LauncherState(
 
     private companion object {
         const val GAME_LOG_POLL_MILLIS = 2_000L
+        const val SERVER_PING_MILLIS = 60_000L
+        // Проверка модов ждёт, пока лаунчер догрузится и перестанет занимать сеть
+        const val MOD_CHECK_DELAY_MILLIS = 5_000L
         val MOD_ALIASES = mapOf("fabric" to "fabric-api")
         fun failTitle(what: String): String? = when (what) {
             "launch" -> tr("Игра не запустилась", "Game failed to launch")
@@ -1437,6 +1639,8 @@ class LauncherState(
             "content" -> tr("Не установилось", "Install failed")
             "worlds" -> tr("С миром не получилось", "World action failed")
             "pack create" -> tr("Сборка не создалась", "Pack not created")
+            "pack import" -> tr("Сборка по ссылке не создалась", "Pack from the link was not created")
+            "mod updates" -> tr("Моды не обновились", "Mods were not updated")
             else -> null
         }
         val NO_VERSIONS: String get() = tr("Нет списка версий — проверь интернет и перезапусти лаунчер", "No version list — check your connection and restart the launcher")

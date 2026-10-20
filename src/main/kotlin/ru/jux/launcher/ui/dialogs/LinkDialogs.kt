@@ -31,19 +31,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
 import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.plural
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.link.LinkContent
+import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.ContentKind
 import ru.jux.launcher.mods.Modrinth
+import ru.jux.launcher.packs.PackLinks
+import ru.jux.launcher.packs.PackShare
 import ru.jux.launcher.ui.InstallPlan
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
@@ -78,7 +88,7 @@ internal fun JoinDialog(state: LauncherState, modal: Modal.Join) {
                 tr("Играть", "Play"),
                 icon = Icons.Default.PlayArrow,
                 style = ButtonStyle.PRIMARY,
-                enabled = choice != null && !state.busy && !state.gameRunning,
+                enabled = choice != null && !state.busy,
                 onClick = { choice?.let { state.joinServer(link, it) } },
             )
         },
@@ -90,7 +100,6 @@ internal fun JoinDialog(state: LauncherState, modal: Modal.Join) {
         EntryChoices(state, tr("Сборка", "Pack"), modal.choices, choice) { choice = it }
         Spacer(Modifier.height(14.dp))
         when {
-            state.gameRunning -> Hint(tr("Закрой игру, чтобы зайти на сервер", "Close the game to join the server"), JuxColors.Warning)
             state.busy -> Hint(busyText(state), JuxColors.Warning)
             modal.note != null -> Hint(modal.note, JuxColors.Warning)
             link.version != null && choice?.let { link.accepts(it.id) } == false -> Hint(
@@ -199,6 +208,172 @@ internal fun InstallDialog(state: LauncherState, modal: Modal.Install) {
         }
     }
 }
+
+@Composable
+internal fun ShareDialog(state: LauncherState, entry: VersionEntry) {
+    var share by remember(entry) { mutableStateOf<PackShare?>(null) }
+    var error by remember(entry) { mutableStateOf<String?>(null) }
+    var copied by remember(entry) { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    val close = { state.modal = null }
+    LaunchedEffect(entry) {
+        try {
+            share = state.packShare(entry)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = e.message ?: tr("Не получилось собрать ссылку", "Couldn't build the link")
+        }
+    }
+
+    JuxDialog(
+        title = tr("Поделиться сборкой", "Share the pack"),
+        subtitle = entry.label,
+        onDismiss = close,
+        width = 560.dp,
+        actions = {
+            JuxButton(tr("Закрыть", "Close"), onClick = close)
+            JuxButton(
+                if (copied) tr("Скопировано", "Copied") else tr("Скопировать ссылку", "Copy link"),
+                icon = JuxIcons.Copy,
+                style = ButtonStyle.PRIMARY,
+                enabled = share != null,
+                onClick = {
+                    val uri = share?.uri ?: return@JuxButton
+                    runCatching { clipboard.setText(AnnotatedString(uri)) }
+                        .onSuccess { copied = true }
+                        .onFailure { error = tr("Буфер обмена занят — ссылка не скопирована", "Clipboard is busy — link not copied") }
+                },
+            )
+        },
+    ) {
+        val ready = share
+        when {
+            ready == null && error != null -> Hint(error.orEmpty(), JuxColors.Danger)
+            ready == null -> Hint(tr("Собираю список модов…", "Collecting the mod list…"))
+            else -> {
+                Text(ready.summary, style = MaterialTheme.typography.bodyMedium, color = JuxColors.Text)
+                Spacer(Modifier.height(12.dp))
+                SelectionContainer {
+                    Text(
+                        ready.uri,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        color = JuxColors.TextMuted,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
+                            .background(JuxColors.Background)
+                            .padding(12.dp),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                if (ready.skipped.isNotEmpty()) {
+                    Hint(
+                        tr("Не с Modrinth, в ссылку не попадут: ", "Not from Modrinth, left out of the link: ") + listed(ready.skipped),
+                        JuxColors.Warning,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                error?.let {
+                    Hint(it, JuxColors.Danger)
+                    Spacer(Modifier.height(6.dp))
+                }
+                Hint(
+                    tr(
+                        "Друг вставляет ссылку в JuxLauncher: «+» над списком версий → «Открыть». Настройки и миры в ссылку не входят",
+                        "Your friend pastes it into JuxLauncher: “+” above the version list → “Open”. Settings and worlds are not included",
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ImportPackDialog(state: LauncherState, modal: Modal.ImportPack) {
+    val link = modal.link
+    val plan = modal.plan
+    val close = { state.modal = null }
+    val supported = when (link.loader) {
+        LoaderKind.VANILLA -> state.versions.isEmpty() || state.versions.any { it.id == link.version }
+        else -> link.loader in state.loaderSupport.loadersFor(link.version)
+    }
+
+    JuxDialog(
+        title = tr("Сборка «${link.name}»", "Pack “${link.name}”"),
+        subtitle = PackLinks.summary(link),
+        onDismiss = close,
+        width = 560.dp,
+        actions = {
+            JuxButton(tr("Отмена", "Cancel"), onClick = close)
+            JuxButton(
+                tr("Создать сборку", "Create pack"),
+                icon = JuxIcons.Download,
+                style = ButtonStyle.PRIMARY,
+                enabled = plan != null && supported && !state.busy,
+                onClick = { plan?.let { state.importSharedPack(link, it) } },
+            )
+        },
+    ) {
+        when {
+            modal.error != null -> Hint(modal.error, JuxColors.Danger)
+            plan == null -> Hint(tr("Ищу файлы на Modrinth…", "Looking for the files on Modrinth…"))
+            else -> {
+                if (!plan.isEmpty) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 260.dp)
+                            .clip(RoundedCornerShape(JuxDimens.CornerMedium))
+                            .background(JuxColors.Background)
+                            .verticalScroll(rememberScrollState())
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        listOf(
+                            tr("Моды", "Mods") to plan.mods,
+                            tr("Шейдеры", "Shaders") to plan.shaders,
+                            tr("Ресурспаки", "Resource packs") to plan.resourcePacks,
+                        ).filter { it.second.isNotEmpty() }.forEach { (title, versions) ->
+                            Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = JuxColors.TextMuted, modifier = Modifier.padding(top = 6.dp))
+                            versions.forEach { version ->
+                                Text(
+                                    "${plan.titleOf(version)} ${version.versionNumber}".trim(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = JuxColors.Text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                when {
+                    !supported -> Hint(tr("${link.loader.label} не поддерживает Minecraft ${link.version}", "${link.loader.label} doesn't support Minecraft ${link.version}"), JuxColors.Danger)
+                    state.busy -> Hint(busyText(state), JuxColors.Warning)
+                    else -> {
+                        if (plan.missing > 0) {
+                            Hint(
+                                tr("Не нашлось на Modrinth: ", "Not found on Modrinth: ") + "${plan.missing} — " + tr("их в сборке не будет", "they won't be in the pack"),
+                                JuxColors.Warning,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                        }
+                        Hint(tr("Поставится отдельной сборкой, твои версии не изменятся", "Installs as a separate pack, your versions stay as they are"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun listed(names: List<String>, limit: Int = 4): String =
+    names.take(limit).joinToString(", ") + if (names.size > limit) tr(" и ещё ${names.size - limit}", " and ${names.size - limit} more") else ""
 
 @Composable
 private fun ProjectCard(project: Modrinth.Project, onOpen: () -> Unit) {

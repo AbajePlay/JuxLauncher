@@ -46,6 +46,10 @@ compose.desktop {
             "-Xms24m",
             "-Xmx384m",
             "-XX:+UseSerialGC",
+            // Освобождённую после установки или запуска игры кучу SerialGC отдаёт Windows сразу, а не по 10–40% за сборку
+            "-XX:-ShrinkHeapInSteps",
+            "-XX:MinHeapFreeRatio=20",
+            "-XX:MaxHeapFreeRatio=50",
             "-XX:MaxMetaspaceSize=192m",
             "-Dfile.encoding=UTF-8",
             "-Dsun.java2d.dpiaware=true",
@@ -102,7 +106,8 @@ tasks.register<JavaExec>("renderScreens") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("ru.jux.launcher.dev.RenderScreensKt")
     args(layout.buildDirectory.dir("preview").get().asFile.absolutePath)
-    (findProperty("renderHome") as String?)?.let { systemProperty("user.home", it) }
+    // Рендер создаёт сборки, миры и меняет настройки — по умолчанию только в песочнице, не в настоящей ~/.jux
+    systemProperty("user.home", findProperty("renderHome") as String? ?: layout.buildDirectory.dir("render-home").get().asFile.absolutePath)
 }
 
 tasks.register<JavaExec>("smokeLoaders") {

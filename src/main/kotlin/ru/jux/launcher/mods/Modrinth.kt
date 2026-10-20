@@ -12,6 +12,7 @@ import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.net.Http
+import java.util.concurrent.ConcurrentHashMap
 
 object Modrinth {
 
@@ -99,6 +100,16 @@ object Modrinth {
 
     fun version(id: String): Version = Json.decodeFromString<Version>(Http.getString("$API/version/$id"))
 
+    /** Версии по id; удалённых с Modrinth в ответе просто нет. */
+    fun versionsByIds(ids: Collection<String>): List<Version> {
+        if (ids.isEmpty()) return emptyList()
+        val url = "$API/versions".toHttpUrl().newBuilder()
+            .addQueryParameter("ids", quoted(ids))
+            .build()
+            .toString()
+        return Json.decodeFromString<List<Version>>(Http.getString(url))
+    }
+
     fun project(idOrSlug: String): Project {
         val url = "$API/project".toHttpUrl().newBuilder().addPathSegment(idOrSlug).build().toString()
         return Json.decodeFromString<Project>(Http.getString(url))
@@ -135,8 +146,37 @@ object Modrinth {
         versions.firstOrNull { it.versionType == "release" }
             ?: versions.firstOrNull { it.versionType == "beta" }
 
-    fun versionsByHash(sha1s: Collection<String>): Map<String, Version> {
-        if (sha1s.isEmpty()) return emptyMap()
+    // Список модов обновляется после каждой установки и при каждом открытии каталога, и каждый раз спрашивал
+    // Modrinth обо всех файлах заново. Файл с тем же хэшем — та же версия, поэтому ответ хватает помнить 10 минут
+    private const val REMEMBER_MILLIS = 10 * 60_000L
+
+    private class Remembered<T>(val at: Long, val value: T?) {
+        fun fresh(now: Long) = now - at < REMEMBER_MILLIS
+    }
+
+    private val byHash = ConcurrentHashMap<String, Remembered<Version>>()
+    private val projectsById = ConcurrentHashMap<String, Remembered<Project>>()
+
+    private fun <T> remembered(
+        keys: Collection<String>,
+        cache: ConcurrentHashMap<String, Remembered<T>>,
+        fetch: (List<String>) -> Map<String, T>,
+    ): Map<String, T> {
+        if (keys.isEmpty()) return emptyMap()
+        val now = System.currentTimeMillis()
+        val missing = keys.filter { cache[it]?.fresh(now) != true }.distinct()
+        if (missing.isNotEmpty()) {
+            val found = fetch(missing)
+            missing.forEach { key -> cache[key] = Remembered(now, found[key]) }
+        }
+        return keys.mapNotNull { key -> cache[key]?.value?.let { key to it } }.toMap()
+    }
+
+    fun versionsByHash(sha1s: Collection<String>): Map<String, Version> = remembered(sha1s, byHash) { missing ->
+        fetchByHash(missing).let { found -> missing.mapNotNull { sha1 -> (found[sha1] ?: found[sha1.lowercase()])?.let { sha1 to it } }.toMap() }
+    }
+
+    private fun fetchByHash(sha1s: Collection<String>): Map<String, Version> {
         val body = buildJsonObject {
             put("hashes", JsonArray(sha1s.map { JsonPrimitive(it) }))
             put("algorithm", "sha1")
@@ -155,8 +195,12 @@ object Modrinth {
         return Json.decodeFromString<Map<String, Version>>(Http.postJson("$API/version_files/update", body.toString()))
     }
 
-    fun projects(ids: Collection<String>): List<Project> {
-        if (ids.isEmpty()) return emptyList()
+    fun projects(ids: Collection<String>): List<Project> =
+        remembered(ids, projectsById) { missing ->
+            fetchProjects(missing).flatMap { listOf(it.slug to it, it.id to it) }.toMap()
+        }.values.distinctBy { it.id }
+
+    private fun fetchProjects(ids: Collection<String>): List<Project> {
         val url = "$API/projects".toHttpUrl().newBuilder()
             .addQueryParameter("ids", quoted(ids))
             .build()

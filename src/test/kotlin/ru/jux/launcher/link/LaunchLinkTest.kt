@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import ru.jux.launcher.meta.LoaderKind
 
 class LaunchLinkTest {
 
@@ -152,6 +153,62 @@ class LaunchLinkTest {
         )
         assertNull(LaunchLink.find(listOf("--play", "26.3")))
         assertNull(LaunchLink.find(emptyList()))
+    }
+
+    @Test
+    fun `a shared pack survives the trip through its own link`() {
+        val pack = LaunchLink.SharedPack(
+            name = "Выживание & друзья, 2",
+            version = "1.21.4",
+            loader = LoaderKind.FABRIC,
+            loaderVersion = "0.16.14",
+            mods = listOf("c3YkZvne", "Ca054sTe"),
+            shaders = listOf("Bqen1mJX"),
+            resourcePacks = listOf("aQjwvDfY", "KYOqeb1P"),
+        )
+        val uri = pack.toUri()
+        assertTrue(uri.startsWith("juxlauncher://pack?"))
+        assertTrue("mods=c3YkZvne,Ca054sTe" in uri, uri)
+        assertEquals(pack, parse(uri))
+    }
+
+    @Test
+    fun `a shared pack link may leave out everything but the version and loader`() {
+        assertEquals(
+            LaunchLink.SharedPack("26.3 Vanilla", "26.3", LoaderKind.VANILLA),
+            parse("juxlauncher://pack?version=26.3&loader=vanilla"),
+        )
+        // Версия загрузчика у ванили не нужна
+        assertNull((parse("juxlauncher://pack?version=26.3&loader=vanilla&lv=1.0") as LaunchLink.SharedPack).loaderVersion)
+    }
+
+    @Test
+    fun `a broken shared pack link is rejected as a whole`() {
+        listOf(
+            "juxlauncher://pack?loader=fabric",
+            "juxlauncher://pack?version=1.21.4",
+            "juxlauncher://pack?version=1.21.4&loader=rift",
+            "juxlauncher://pack?version=1.21.4&loader=fabric&mods=c3YkZvne,bad",
+            "juxlauncher://pack?version=1.21.4&loader=fabric&shaders=../../x",
+            // Моды без загрузчика модов не встанут
+            "juxlauncher://pack?version=1.21.4&loader=vanilla&mods=c3YkZvne",
+            "juxlauncher://pack?version=1.21.4&loader=optifine&mods=c3YkZvne",
+        ).forEach { assertNull(parse(it), it) }
+        val tooMany = List(601) { index -> index.toString().padStart(8, 'a') }.joinToString(",")
+        assertNull(parse("juxlauncher://pack?version=1.21.4&loader=fabric&mods=$tooMany"))
+    }
+
+    @Test
+    fun `repeated files in a shared pack are taken once`() {
+        val link = parse("juxlauncher://pack?version=1.21.4&loader=fabric&mods=c3YkZvne,c3YkZvne,,Ca054sTe") as LaunchLink.SharedPack
+        assertEquals(listOf("c3YkZvne", "Ca054sTe"), link.mods)
+    }
+
+    @Test
+    fun `an install link for a modpack is built the way it is parsed`() {
+        val uri = LaunchLink.installUri("1KVo5zza", LinkContent.MODPACK, "Fabulously Optimized")
+        assertEquals("juxlauncher://install?project=1KVo5zza&kind=modpack&name=Fabulously+Optimized", uri)
+        assertEquals(LaunchLink.Install("1KVo5zza", LinkContent.MODPACK, null, null, "Fabulously Optimized"), parse(uri))
     }
 
     @Test

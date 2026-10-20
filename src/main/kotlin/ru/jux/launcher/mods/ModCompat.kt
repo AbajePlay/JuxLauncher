@@ -8,7 +8,10 @@ import kotlinx.serialization.json.jsonObject
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.tr
 import java.io.IOException
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
@@ -33,7 +36,24 @@ class IncompatibleModException(val conflicts: List<Conflict>, outcome: String) :
 
 object ModCompat {
 
-    fun read(jar: Path): ModMeta? = runCatching {
+    // Каждый клик «Играть» проверяет все моды на конфликты: без кэша это сотни открытых jar-архивов подряд.
+    // Изменённый файл узнаётся по размеру и времени изменения и читается заново
+    private class Cached<T>(val size: Long, val mtime: Long, val value: T)
+
+    private val metas = ConcurrentHashMap<Path, Cached<ModMeta?>>()
+    private val ids = ConcurrentHashMap<Path, Cached<Set<String>>>()
+
+    private fun <T> cached(cache: ConcurrentHashMap<Path, Cached<T>>, jar: Path, load: (Path) -> T): T {
+        val attrs = runCatching { Files.readAttributes(jar, BasicFileAttributes::class.java) }.getOrNull() ?: return load(jar)
+        val key = jar.toAbsolutePath().normalize()
+        val mtime = attrs.lastModifiedTime().toMillis()
+        cache[key]?.takeIf { it.size == attrs.size() && it.mtime == mtime }?.let { return it.value }
+        return load(jar).also { cache[key] = Cached(attrs.size(), mtime, it) }
+    }
+
+    fun read(jar: Path): ModMeta? = cached(metas, jar, ::readJar)
+
+    private fun readJar(jar: Path): ModMeta? = runCatching {
         ZipFile(jar.toFile()).use { zip ->
             val entry = zip.getEntry("fabric.mod.json") ?: return null
             parse(Json.parseToJsonElement(zip.getInputStream(entry).readBytes().decodeToString()).jsonObject)
@@ -41,7 +61,9 @@ object ModCompat {
     }.getOrNull()
 
     // Все id, под которыми мод известен загрузчикам: Fabric, Quilt, Forge и NeoForge пишут их в разные файлы
-    fun idsOf(jar: Path): Set<String> = runCatching {
+    fun idsOf(jar: Path): Set<String> = cached(ids, jar, ::readIds)
+
+    private fun readIds(jar: Path): Set<String> = runCatching {
         ZipFile(jar.toFile()).use { zip ->
             fun content(name: String) = zip.getEntry(name)?.let { zip.getInputStream(it).readBytes().decodeToString() }
             buildSet {

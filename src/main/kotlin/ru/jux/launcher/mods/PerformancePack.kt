@@ -7,7 +7,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Log
-import ru.jux.launcher.core.sha1Of
+import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.instance.ManagedMod
@@ -186,7 +186,7 @@ object PerformancePack {
         val managedNames = managed.map { it.fileName }.toSet()
         val jars = modsDir.listDirectoryEntries("*.jar").filter { it.fileName.toString() !in managedNames }
         if (jars.isEmpty()) return emptySet()
-        val hashes = jars.mapNotNull { runCatching { sha1Of(it) }.getOrNull() }
+        val hashes = jars.mapNotNull { runCatching { VerifyCache.sha1(it) }.getOrNull() }
         return Modrinth.versionsByHash(hashes).values.map { it.projectId }.toSet()
     }
 }

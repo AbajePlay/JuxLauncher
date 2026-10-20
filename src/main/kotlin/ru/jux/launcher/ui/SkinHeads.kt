@@ -66,7 +66,7 @@ object SkinHeads {
     private fun downloadSkin(url: String): BufferedImage? {
         val file = Paths.cache.resolve("skins").resolve(sha1Of(url.byteInputStream()) + ".png")
         if (!file.exists()) {
-            val bytes = Http.client.newCall(Http.request(url.replaceFirst("http://", "https://"))).execute().use { response ->
+            val bytes = Http.downloads.newCall(Http.request(url.replaceFirst("http://", "https://"))).execute().use { response ->
                 if (!response.isSuccessful) return null
                 response.body?.bytes() ?: return null
             }

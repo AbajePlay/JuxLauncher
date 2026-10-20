@@ -37,7 +37,7 @@ object Preloader {
 
     private const val MIN_VISIBLE_MS = 300L
 
-    suspend fun run(onStep: (Float, String) -> Unit): PreloadResult {
+    suspend fun run(onStep: (Float, String) -> Unit): PreloadResult = coroutineScope {
         val startedAt = System.currentTimeMillis()
 
         // Язык известен только после Settings.load(), поэтому текст берётся заново на каждом шаге
@@ -46,14 +46,24 @@ object Preloader {
         withContext(Dispatchers.IO) { runCatching { Paths.ensureBaseDirs() } }
         onStep(0.15f, opening())
         withContext(Dispatchers.IO) { runCatching { Settings.load() } }
+
+        // Остальное друг от друга не зависит: читается одновременно, а ждём в прежнем порядке, чтобы шаги сплэша шли как раньше
+        val accounts = async(Dispatchers.IO) { runCatching { AccountManager.load() } }
+        val notices = async(Dispatchers.IO) { runCatching { Notices.load() } }
+        val verified = async(Dispatchers.IO) { runCatching { VerifyCache.load() } }
+        val cachedManifestLoad = async(Dispatchers.IO) { VersionManifestRepository.loadCached() }
+        val cachedSupportLoad = async(Dispatchers.IO) { readSupportCache() }
+        val installedScan = async(Dispatchers.IO) { scanInstalled() }
+        val packsLoad = async(Dispatchers.IO) { Modpacks.list() }
+
         onStep(0.25f, opening())
-        withContext(Dispatchers.IO) { runCatching { AccountManager.load() } }
-        withContext(Dispatchers.IO) { runCatching { Notices.load() } }
+        accounts.await()
+        notices.await()
         onStep(0.40f, opening())
-        withContext(Dispatchers.IO) { runCatching { VerifyCache.load() } }
+        verified.await()
 
         onStep(0.50f, tr("Спрашиваю Mojang, что нового", "Asking Mojang what's new"))
-        val cachedManifest = withContext(Dispatchers.IO) { VersionManifestRepository.loadCached() }
+        val cachedManifest = cachedManifestLoad.await()
         val manifest = cachedManifest ?: withContext(Dispatchers.IO) {
             runCatching { VersionManifestRepository.load() }.getOrElse { failure ->
                 Log.warn("preload: manifest unavailable: ${failure.message}")
@@ -64,12 +74,12 @@ object Preloader {
 
         val loaders = tr("Подтягиваю загрузчики модов", "Fetching mod loaders")
         onStep(0.70f, loaders)
-        val cachedSupport = withContext(Dispatchers.IO) { readSupportCache() }
+        val cachedSupport = cachedSupportLoad.await()
         val loaderSupport = cachedSupport?.support ?: fetchLoaderSupport()
 
         onStep(0.90f, loaders)
-        val (installed, profiles) = withContext(Dispatchers.IO) { scanInstalled() }
-        val packs = withContext(Dispatchers.IO) { Modpacks.list() }
+        val (installed, profiles) = installedScan.await()
+        val packs = packsLoad.await()
 
         onStep(1f, loaders)
         val elapsed = System.currentTimeMillis() - startedAt
@@ -81,7 +91,7 @@ object Preloader {
         )
         if (elapsed < MIN_VISIBLE_MS) delay(MIN_VISIBLE_MS - elapsed)
 
-        return PreloadResult(
+        PreloadResult(
             manifest = manifest,
             installed = installed,
             profiles = profiles,

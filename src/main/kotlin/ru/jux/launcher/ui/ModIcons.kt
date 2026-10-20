@@ -75,26 +75,29 @@ object ModIcons {
 
     private fun fetch(url: String): ByteArray? {
         if (url.startsWith("file:")) return Path.of(URI(url.substringBefore('#'))).readBytes().takeIf { it.size <= MAX_BYTES }
-        return Http.client.newCall(Http.request(url)).execute().use { response ->
+        return Http.downloads.newCall(Http.request(url)).execute().use { response ->
             val body = response.body ?: return null
             if (!response.isSuccessful || body.contentLength() > MAX_BYTES) return null
             body.bytes().takeIf { it.size <= MAX_BYTES }
         }
     }
 
-    private fun shrink(bytes: ByteArray): ImageBitmap {
-        val source = SkiaImage.makeFromEncoded(bytes)
-        val surface = Surface.makeRasterN32Premul(SIZE, SIZE)
-        surface.canvas.drawImageRect(
-            source,
-            Rect.makeWH(source.width.toFloat(), source.height.toFloat()),
-            Rect.makeWH(SIZE.toFloat(), SIZE.toFloat()),
-            SamplingMode.LINEAR,
-            null,
-            true,
-        )
-        return surface.makeImageSnapshot().toComposeImageBitmap()
-    }
+    // Нативная память Skia (исходник до 2 МБ в полном размере, поверхность) освобождается сразу, а не когда дойдёт GC:
+    // toComposeImageBitmap копирует пиксели в свой Bitmap
+    private fun shrink(bytes: ByteArray): ImageBitmap =
+        SkiaImage.makeFromEncoded(bytes).use { source ->
+            Surface.makeRasterN32Premul(SIZE, SIZE).use { surface ->
+                surface.canvas.drawImageRect(
+                    source,
+                    Rect.makeWH(source.width.toFloat(), source.height.toFloat()),
+                    Rect.makeWH(SIZE.toFloat(), SIZE.toFloat()),
+                    SamplingMode.LINEAR,
+                    null,
+                    true,
+                )
+                surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
+            }
+        }
 }
 
 @Composable

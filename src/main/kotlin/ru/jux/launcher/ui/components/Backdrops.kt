@@ -15,14 +15,23 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.FilterMipmap
+import org.jetbrains.skia.FilterMode
+import org.jetbrains.skia.Image as SkiaImage
+import org.jetbrains.skia.MipmapMode
+import org.jetbrains.skia.Rect
+import org.jetbrains.skia.Surface
 import ru.jux.launcher.core.Backdrop
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.core.writeAtomically
 import ru.jux.launcher.ui.theme.JuxColors
+import java.awt.Dimension
+import java.awt.GraphicsEnvironment
 import java.io.IOException
 import java.nio.file.Files
+import kotlin.math.ceil
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.fileSize
@@ -48,8 +57,50 @@ object Backdrops {
             .onFailure { Log.warn("backdrop image unreadable: ${it.message}") }
             .getOrNull()
 
-    private fun decode(bytes: ByteArray): ImageBitmap? =
-        runCatching { org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+    private fun decode(bytes: ByteArray): ImageBitmap? = runCatching {
+        SkiaImage.makeFromEncoded(bytes).use { source -> fitToScreens(source) }
+    }.getOrNull()
+
+    /**
+     * Фон рисуется с обрезкой по окну, а окно не больше экрана: фото 6000×4000 занимало бы ~100 МБ вне кучи,
+     * хотя на экране видно не больше пикселей, чем у самого большого монитора. Уменьшаем до размера, который
+     * этот монитор целиком покрывает с теми же пропорциями — кадр и обрезка остаются прежними.
+     */
+    private fun fitToScreens(source: SkiaImage): ImageBitmap {
+        val screen = largestScreen() ?: return source.toComposeImageBitmap()
+        val scale = maxOf(screen.width / source.width.toFloat(), screen.height / source.height.toFloat())
+        if (scale >= 1f) return source.toComposeImageBitmap()
+        val width = ceil(source.width * scale).toInt().coerceAtLeast(1)
+        val height = ceil(source.height * scale).toInt().coerceAtLeast(1)
+        return Surface.makeRasterN32Premul(width, height).use { surface ->
+            surface.canvas.drawImageRect(
+                source,
+                Rect.makeWH(source.width.toFloat(), source.height.toFloat()),
+                Rect.makeWH(width.toFloat(), height.toFloat()),
+                FilterMipmap(FilterMode.LINEAR, MipmapMode.LINEAR),
+                null,
+                true,
+            )
+            surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
+        }
+    }
+
+    private fun largestScreen(): Dimension? = runCatching {
+        // Физические пиксели: режим экрана или логические границы × масштаб Windows — что больше
+        GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+            .map { device ->
+                val mode = device.displayMode
+                val config = device.defaultConfiguration
+                val scale = config.defaultTransform
+                Dimension(
+                    maxOf(mode.width, ceil(config.bounds.width * scale.scaleX).toInt()),
+                    maxOf(mode.height, ceil(config.bounds.height * scale.scaleY).toInt()),
+                )
+            }
+            .filter { it.width > 0 && it.height > 0 }
+            .takeIf { it.isNotEmpty() }
+            ?.let { screens -> Dimension(screens.maxOf { it.width }, screens.maxOf { it.height }) }
+    }.getOrNull()
 }
 
 @Composable

@@ -82,6 +82,7 @@ private const val RECENT_MIN = 3
 fun ActivityScreen(state: LauncherState) {
     LaunchedEffect(Unit) {
         while (true) {
+            state.awaitWindowShown()
             state.loadActivity()
             delay(REFRESH_MILLIS)
         }

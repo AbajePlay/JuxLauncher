@@ -7,6 +7,7 @@ import com.sun.jna.win32.StdCallLibrary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import ru.jux.launcher.net.Http
 
 object MemoryRelease {
 
@@ -23,6 +24,8 @@ object MemoryRelease {
 
     suspend fun afterWindowClosed() = withContext(Dispatchers.IO) {
         delay(1_000)
+        // После загрузок в пуле висят до 32 TLS-соединений с буферами; на время игры они не нужны
+        runCatching { Http.client.connectionPool.evictAll() }
         System.gc()
         delay(500)
         val trimmed = runCatching { psapi?.EmptyWorkingSet(Kernel32.INSTANCE.GetCurrentProcess()) == true }

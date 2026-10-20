@@ -2,6 +2,7 @@ package ru.jux.launcher.servers
 
 import ru.jux.launcher.core.Log
 import java.util.Hashtable
+import java.util.concurrent.ConcurrentHashMap
 import javax.naming.Context
 import javax.naming.directory.InitialDirContext
 
@@ -50,9 +51,21 @@ data class ServerAddress(val host: String, val port: Int?) {
 object SrvResolver {
 
     private val IPV4 = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
+    private const val TTL_MILLIS = 10 * 60_000L
+
+    private class Cached(val at: Long, val target: ServerAddress?)
+
+    // Сервер пингуется раз в минуту: DNS-запрос SRV (до 1,5 с с повтором, если записи нет) хватает делать раз в 10 минут
+    private val cache = ConcurrentHashMap<String, Cached>()
 
     fun resolve(host: String): ServerAddress? {
         if (IPV4.matches(host) || ':' in host) return null
+        val now = System.currentTimeMillis()
+        cache[host]?.takeIf { now - it.at < TTL_MILLIS }?.let { return it.target }
+        return lookup(host).also { cache[host] = Cached(now, it) }
+    }
+
+    private fun lookup(host: String): ServerAddress? {
         return runCatching {
             val env = Hashtable<String, String>().apply {
                 put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.dns.DnsContextFactory")

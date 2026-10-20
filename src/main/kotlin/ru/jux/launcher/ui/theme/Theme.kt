@@ -10,9 +10,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
@@ -127,6 +129,9 @@ object JuxColors {
         return Look(palette, accent, inkOn(accent), translucent = settings.backdrop == Backdrop.IMAGE)
     }
 
+    /** Меняется, только когда меняются сами цвета: по нему тема пересобирает палитру Material. */
+    val lookKey: Any get() = look
+
     fun apply(settings: LauncherSettings) {
         val next = lookOf(settings)
         if (next != look) look = next
@@ -227,13 +232,23 @@ fun Modifier.softShadow(shape: Shape, elevation: Dp = 20.dp): Modifier =
 fun Modifier.glow(shape: Shape, color: Color, elevation: Dp = 22.dp): Modifier =
     shadow(elevation = elevation, shape = shape, clip = false, ambientColor = color, spotColor = color)
 
+/** Как [glow], но высота читается при отрисовке: анимированная тень не пересобирает компонент на каждом кадре. */
+fun Modifier.glow(shape: Shape, color: Color, elevation: () -> Dp): Modifier = graphicsLayer {
+    shadowElevation = elevation().toPx()
+    this.shape = shape
+    clip = false
+    ambientShadowColor = color
+    spotShadowColor = color
+}
+
 @Composable
 fun JuxTheme(content: @Composable () -> Unit) {
     val settings by Settings.state.collectAsState()
     JuxColors.apply(settings)
-    val base = if (JuxColors.isDark) darkColorScheme() else lightColorScheme()
-    MaterialTheme(
-        colorScheme = base.copy(
+    // Без remember новая палитра на каждое изменение любой настройки перерисовывала бы всё окно
+    val colorScheme = remember(JuxColors.lookKey) {
+        val base = if (JuxColors.isDark) darkColorScheme() else lightColorScheme()
+        base.copy(
             primary = JuxColors.Accent,
             onPrimary = JuxColors.OnAccent,
             secondary = JuxColors.Info,
@@ -248,7 +263,10 @@ fun JuxTheme(content: @Composable () -> Unit) {
             outlineVariant = JuxColors.Outline,
             error = JuxColors.Danger,
             onError = JuxColors.Background,
-        ),
+        )
+    }
+    MaterialTheme(
+        colorScheme = colorScheme,
         typography = JuxTypography,
     ) {
         // Тексты берут язык из настроек напрямую, поэтому при смене языка пересоздаём всё дерево

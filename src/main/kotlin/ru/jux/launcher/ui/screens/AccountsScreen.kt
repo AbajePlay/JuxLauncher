@@ -44,6 +44,7 @@ import ru.jux.launcher.core.tr
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.SkinHead
 import ru.jux.launcher.ui.components.ButtonStyle
+import ru.jux.launcher.ui.components.ConfirmDialog
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxTextField
 import ru.jux.launcher.ui.components.Panel
@@ -58,6 +59,7 @@ fun AccountsScreen(state: LauncherState) {
     val selected by state.selectedAccount.collectAsState()
     var nickname by remember { mutableStateOf("") }
     var nicknameError by remember { mutableStateOf<String?>(null) }
+    var removing by remember { mutableStateOf<Account?>(null) }
 
     val addOffline = {
         val problem = state.addOffline(nickname)
@@ -138,13 +140,24 @@ fun AccountsScreen(state: LauncherState) {
                                 account = account,
                                 isSelected = account.uuid == selected?.uuid,
                                 onSelect = { state.selectAccount(account.uuid) },
-                                onRemove = { state.removeAccount(account.uuid) },
+                                onRemove = { removing = account },
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    removing?.let { account ->
+        ConfirmDialog(
+            title = tr("Удалить аккаунт ${account.name}?", "Remove account ${account.name}?"),
+            text = if (account.isOffline) tr("Его можно будет добавить снова по нику", "You can add it again by nickname")
+            else tr("Чтобы вернуть, придётся снова войти через Microsoft", "To bring it back, sign in with Microsoft again"),
+            action = tr("Удалить", "Remove"),
+            onDismiss = { removing = null },
+            onConfirm = { state.removeAccount(account.uuid) },
+        )
     }
 }
 

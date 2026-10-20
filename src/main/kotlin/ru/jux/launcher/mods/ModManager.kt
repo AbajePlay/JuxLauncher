@@ -4,10 +4,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Storage
-import ru.jux.launcher.core.sha1Of
+import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.instance.InstanceStore
 import ru.jux.launcher.meta.LoaderKind
@@ -20,12 +22,9 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
-import kotlin.io.path.fileSize
-import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
@@ -36,6 +35,7 @@ data class InstalledItem(
     val enabled: Boolean,
     val sha1: String,
     val projectId: String?,
+    val versionId: String?,
     val title: String,
     val versionNumber: String,
     val iconUrl: String?,
@@ -43,7 +43,12 @@ data class InstalledItem(
     val update: Modrinth.Version?,
 ) {
     val fileName: String get() = file.name
+
+    // Моды FPS-буста обновляет сам буст при запуске
+    val canUpdate: Boolean get() = update != null && !fromBoost
 }
+
+data class UpdateReport(val updated: Int, val skipped: List<String>)
 
 object ModManager {
 
@@ -53,17 +58,12 @@ object ModManager {
     private const val FIX_ROUNDS = 4
     private const val FIX_CANDIDATES = 6
     private const val BLOCKED_LIMIT = 50
+    private const val UPDATE_REQUESTS = 6
 
-    private class Hashed(val size: Long, val modified: Long, val sha1: String)
+    @Suppress("OPT_IN_USAGE")
+    private val HASHING = Dispatchers.IO.limitedParallelism(4)
 
-    private val hashes = ConcurrentHashMap<Path, Hashed>()
-
-    private fun hashOf(file: Path): String {
-        val size = file.fileSize()
-        val modified = file.getLastModifiedTime().toMillis()
-        hashes[file]?.takeIf { it.size == size && it.modified == modified }?.let { return it.sha1 }
-        return sha1Of(file).also { hashes[file] = Hashed(size, modified, it) }
-    }
+    private fun hashOf(file: Path): String = VerifyCache.sha1(file)
 
     fun loadersFor(kind: LoaderKind): List<String> = when (kind) {
         LoaderKind.FABRIC -> listOf("fabric")
@@ -100,7 +100,10 @@ object ModManager {
             val files = dir.listDirectoryEntries().filter { isContent(it, content) }
             if (files.isEmpty()) return@withContext emptyList()
 
-            val sums = files.associateWith { file -> if (file.isDirectory()) "" else runCatching { hashOf(file) }.getOrDefault("") }
+            // Без кэша (первый скан, новые файлы) хэши сотен jar-файлов считаются в несколько потоков
+            val sums = files.map { file ->
+                file to async(HASHING) { if (file.isDirectory()) "" else runCatching { hashOf(file) }.getOrDefault("") }
+            }.associate { (file, sum) -> file to sum.await() }
             val known = sums.values.filter { it.isNotEmpty() }
             val versions = remote("identify mods") { Modrinth.versionsByHash(known) }.orEmpty()
             val projects = remote("mod titles") { Modrinth.projects(versions.values.map { it.projectId }.distinct()) }
@@ -134,6 +137,7 @@ object ModManager {
                     enabled = enabled,
                     sha1 = sha1,
                     projectId = version?.projectId,
+                    versionId = version?.id,
                     title = project?.title?.takeIf { it.isNotBlank() } ?: file.name.removeSuffix(DISABLED).removeSuffix(content.extension),
                     versionNumber = version?.versionNumber.orEmpty(),
                     iconUrl = project?.iconUrl,
@@ -247,11 +251,25 @@ object ModManager {
     ): String = withContext(Dispatchers.IO) {
         val version = Modrinth.pick(Modrinth.versions(projectId, catalogLoaders(content, LoaderKind.VANILLA), gameVersion))
             ?: throw IOException(tr("$title пока нет для $gameVersion", "$title is not out for $gameVersion yet"))
-        val file = version.primaryFile ?: throw IOException(tr("У ${version.name} нет файла для скачивания", "${version.name} has no file to download"))
-        val name = content.safeName(file.filename) ?: throw IOException(tr("Недопустимое имя файла: ${file.filename}", "Invalid file name: ${file.filename}"))
-        Downloader().run(listOf(DownloadTask(file.url, content.dir(gameDir).resolve(name), file.sha1, file.size, label = name)), onProgress)
-        Log.info("${content.projectType} installed into $gameDir: $name")
-        name
+        download(gameDir, content, listOf(version), onProgress).single()
+    }
+
+    /** Качает ровно эти версии в папку [content]; возвращает имена файлов в том же порядке. */
+    suspend fun download(
+        gameDir: Path,
+        content: ContentKind,
+        versions: List<Modrinth.Version>,
+        onProgress: (DownloadProgress) -> Unit = {},
+    ): List<String> = withContext(Dispatchers.IO) {
+        if (versions.isEmpty()) return@withContext emptyList()
+        val tasks = versions.map { version ->
+            val file = version.primaryFile ?: throw IOException(tr("У ${version.name} нет файла для скачивания", "${version.name} has no file to download"))
+            val name = content.safeName(file.filename) ?: throw IOException(tr("Недопустимое имя файла: ${file.filename}", "Invalid file name: ${file.filename}"))
+            DownloadTask(file.url, content.dir(gameDir).resolve(name), file.sha1, file.size, label = name)
+        }
+        Downloader().run(tasks, onProgress)
+        Log.info("${content.projectType} installed into $gameDir: ${tasks.joinToString { it.dest.name }}")
+        tasks.map { it.dest.name }
     }
 
     suspend fun update(mod: InstalledItem, onProgress: (DownloadProgress) -> Unit = {}) = withContext(Dispatchers.IO) {
@@ -280,6 +298,33 @@ object ModManager {
         }
         gameDirOf(mod)?.let(::clearBlocked)
         Log.info("mod updated: ${mod.fileName} -> ${target.name}")
+    }
+
+    /**
+     * Обновляет [mods] по очереди. Несовместимые с остальными откладывает и пробует ещё раз,
+     * пока обновления других помогают; что так и не встало — в [UpdateReport.skipped].
+     */
+    suspend fun updateAll(mods: List<InstalledItem>, onProgress: (DownloadProgress) -> Unit = {}): UpdateReport {
+        var pending = mods.filter { it.canUpdate }
+        var updated = 0
+        var skipped = emptyList<String>()
+        do {
+            val before = updated
+            val failed = ArrayList<InstalledItem>()
+            val reasons = ArrayList<String>()
+            for (mod in pending) {
+                try {
+                    update(mod, onProgress)
+                    updated++
+                } catch (e: IncompatibleModException) {
+                    failed += mod
+                    reasons += e.message.orEmpty()
+                }
+            }
+            pending = failed
+            skipped = reasons
+        } while (pending.isNotEmpty() && updated > before)
+        return UpdateReport(updated, skipped)
     }
 
     suspend fun fixConflicts(
@@ -356,6 +401,8 @@ object ModManager {
         loaders: List<String>,
         gameVersion: String,
     ): Map<String, Modrinth.Version> = coroutineScope {
+        // Пачка одновременных запросов упиралась в лимит Modrinth (429), и обновление молча пропадало
+        val requests = Semaphore(UPDATE_REQUESTS)
         latest.mapNotNull { (sha1, candidate) ->
             val current = installed[sha1] ?: return@mapNotNull null
             if (candidate.id == current.id) return@mapNotNull null
@@ -363,8 +410,10 @@ object ModManager {
                 val release = if (candidate.versionType == "release") {
                     candidate
                 } else {
-                    remote("releases of ${current.projectId}") {
-                        Modrinth.versions(current.projectId, loaders, gameVersion)
+                    requests.withPermit {
+                        remote("releases of ${current.projectId}") {
+                            Modrinth.versions(current.projectId, loaders, gameVersion)
+                        }
                     }?.let(::newestRelease)
                 }
                 release?.takeIf { isUpgrade(it, current) }

@@ -27,6 +27,10 @@ import ru.jux.launcher.link.LinkContent
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.OptiFineRepository
+import ru.jux.launcher.mods.ContentKind
+import ru.jux.launcher.mods.InstalledItem
+import ru.jux.launcher.mods.Modrinth
+import ru.jux.launcher.packs.PackLinks
 import ru.jux.launcher.packs.Modpack
 import ru.jux.launcher.online.OnlineCount
 import ru.jux.launcher.online.OnlineCounter
@@ -36,10 +40,14 @@ import ru.jux.launcher.ui.InstallPlan
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.ModIcons
+import ru.jux.launcher.ui.PackMode
+import ru.jux.launcher.ui.RunningGame
+import ru.jux.launcher.discord.Presence
 import ru.jux.launcher.ui.Screen
 import ru.jux.launcher.ui.SplashContent
 import ru.jux.launcher.ui.installPlan
 import ru.jux.launcher.ui.joinModal
+import ru.jux.launcher.ui.components.ConfirmDialog
 import ru.jux.launcher.ui.components.JuxDropdownMenu
 import ru.jux.launcher.ui.screens.EntryMenuItems
 import ru.jux.launcher.ui.theme.JuxTheme
@@ -67,7 +75,7 @@ fun main(args: Array<String>) {
     val state = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded)
     OnlineCounter.show(OnlineCount(online = 128, playing = 47))
 
-    fun render(name: String, width: Int, height: Int, content: @Composable () -> Unit) {
+    fun render(name: String, width: Int, height: Int, realMillis: Long = 0, content: @Composable () -> Unit) {
         val scene = ImageComposeScene(
             width = (width * scale).toInt(),
             height = (height * scale).toInt(),
@@ -77,6 +85,13 @@ fun main(args: Array<String>) {
         try {
             var time = 0L
             while (time < SETTLE_NANOS) {
+                scene.render(time)
+                time += FRAME_NANOS
+            }
+            // Окнам, которые сами ходят в сеть, даём настоящее время дождаться ответа
+            val until = System.currentTimeMillis() + realMillis
+            while (System.currentTimeMillis() < until) {
+                Thread.sleep(50)
                 scene.render(time)
                 time += FRAME_NANOS
             }
@@ -148,11 +163,20 @@ fun main(args: Array<String>) {
         "dialog-install-pack" to LaunchLink.Install("fabulously-optimized", LinkContent.MODPACK, null, null, null),
         "dialog-install-datapack" to LaunchLink.Install("terralith", LinkContent.DATAPACK, null, null, "Terralith"),
         "dialog-install-missing" to LaunchLink.Install("no-such-project-jux", LinkContent.MOD, "1.21.4", null, null),
+        "dialog-pack-link" to LaunchLink.SharedPack(
+            name = "Выживание с друзьями",
+            version = "1.21.4",
+            loader = LoaderKind.FABRIC,
+            mods = listOf("c3YkZvne", "Ca054sTe", "zzzzzzzz"),
+            shaders = listOf("Bqen1mJX"),
+            resourcePacks = listOf("aQjwvDfY"),
+        ),
     )
     for ((name, link) in links) {
         state.modal = when (link) {
             is LaunchLink.Join -> state.joinModal(link)
             is LaunchLink.Install -> Modal.Install(link, if (link.content == LinkContent.DATAPACK) null else runBlocking { state.installPlan(link) })
+            is LaunchLink.SharedPack -> Modal.ImportPack(link, runBlocking { PackLinks.resolve(link) })
             LaunchLink.Open -> null
         }
         val plan = (state.modal as? Modal.Install)?.plan
@@ -183,6 +207,48 @@ fun main(args: Array<String>) {
         state.openCatalog(tab = tab)
         render("catalog-${tab.name.lowercase()}", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
     }
+    state.screen = Screen.HOME
+
+    // Значок и кнопка обновлений модов: каталог сообщает, сколько модов можно обновить
+    val fabric = state.entryFor("26.3", LoaderKind.FABRIC)
+    state.selectEntry(fabric)
+    val newer = Modrinth.Version(id = "newerver", projectId = "AANobbMI", versionNumber = "0.7.0")
+    val stale = List(3) { index ->
+        InstalledItem(
+            file = Path.of("mod$index.jar"), kind = ContentKind.MOD, enabled = true, sha1 = "", projectId = "AANobbMI",
+            versionId = "olderver", title = "Mod $index", versionNumber = "0.6", iconUrl = null, fromBoost = false, update = newer,
+        )
+    }
+    state.modsScanned(fabric, stale)
+    render("home-mod-updates", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
+
+    // Два клиента одной сборки: первый уже в игре, второй ещё грузится
+    val presence = Presence.Playing(versionId = fabric.id, loaderLabel = "Fabric", server = null, mods = 3, startedAt = 0)
+    val idle = ProcessBuilder("cmd", "/c", "exit").start()
+    state.games = listOf(
+        RunningGame(fabric, idle, Path.of("latest-game.log"), 0, presence).apply { opened = true },
+        RunningGame(fabric, idle, Path.of("latest-game-2.log"), 0, presence),
+    )
+    render("home-running", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
+    state.games = state.games.take(1)
+    render("home-running-one", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
+    state.games = emptyList()
+
+    state.modal = Modal.PackEditor(PackMode.Create)
+    render("dialog-pack-create", 1040, 760) { JuxTheme { App(state, onGameStarted = {}) } }
+    state.modal = Modal.Graphics(fabric)
+    render("dialog-graphics", 1040, 660) { JuxTheme { App(state, onGameStarted = {}) } }
+    state.modal = Modal.Share(fabric)
+    render("dialog-share", 1040, 660, realMillis = 8_000) { JuxTheme { App(state, onGameStarted = {}) } }
+    state.modal = null
+    render("dialog-confirm", 1040, 660) {
+        JuxTheme {
+            Box(Modifier.fillMaxSize()) {
+                App(state, onGameStarted = {})
+                ConfirmDialog("Удалить аккаунт Abaje?", "Его можно будет добавить снова по нику", "Удалить", onDismiss = {}, onConfirm = {})
+            }
+        }
+    }
 
     val pack = Modpack(
         id = "fabulously-optimized",
@@ -199,7 +265,7 @@ fun main(args: Array<String>) {
     render("home-pack", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
     withPack.openCatalog(tab = CatalogTab.PACKS)
     render("catalog-packs-installed", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
-    renderNewFeatures(preloaded, ::render)
+    renderNewFeatures(preloaded) { name, width, height, content -> render(name, width, height, content = content) }
     exitProcess(0)
 }
 

@@ -8,6 +8,9 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import ru.jux.launcher.meta.LoaderKind
 import java.nio.file.Path
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
@@ -31,7 +34,20 @@ data class LauncherSettings(
     val backdrop: Backdrop = Backdrop.NONE,
     val backdropColor: Int = DEFAULT_BACKDROP_COLOR,
     val backdropDim: Float = 0.6f,
+    val gameWindow: GameWindowMode = GameWindowMode.HIDE,
 )
+
+/** Что делать с окном лаунчера, когда окно игры открылось. */
+enum class GameWindowMode {
+    HIDE, MINIMIZE, KEEP;
+
+    val title: String
+        get() = when (this) {
+            HIDE -> tr("Скрыть", "Hide")
+            MINIMIZE -> tr("Свернуть", "Minimize")
+            KEEP -> tr("Оставить открытым", "Keep open")
+        }
+}
 
 object SettingsDefaults {
 
@@ -72,10 +88,27 @@ object Settings {
     }
 
     fun update(transform: (LauncherSettings) -> LauncherSettings) {
-        _state.value = transform(_state.value)
-        save()
+        val next = transform(_state.value)
+        if (next == _state.value) return
+        _state.value = next
+        scheduleSave()
     }
 
+    // Ползунок шлёт десятки изменений в секунду: пишем файл один раз, когда он отпущен, и не на UI-потоке.
+    // На выходе лаунчер всё равно сохраняет настройки сразу.
+    private val saver = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "settings-save").apply { isDaemon = true } }
+    private val savePending = AtomicBoolean(false)
+
+    private fun scheduleSave() {
+        if (savePending.compareAndSet(false, true)) {
+            saver.schedule({
+                savePending.set(false)
+                save()
+            }, SAVE_DELAY_MILLIS, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    @Synchronized
     fun save() {
         runCatching { Paths.settingsFile.writeAtomically(PrettyJson.encodeToString(_state.value)) }
             .onFailure { Log.error("could not save settings", it) }
@@ -96,4 +129,5 @@ object Settings {
     private fun customGameRoot(): Path? = current.customGameDir?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
 
     private const val PACKS = "packs"
+    private const val SAVE_DELAY_MILLIS = 300L
 }

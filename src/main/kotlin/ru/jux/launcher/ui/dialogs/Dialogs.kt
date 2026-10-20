@@ -53,6 +53,7 @@ import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.logs.GameLogs
 import ru.jux.launcher.logs.LogSource
+import ru.jux.launcher.mods.GraphicsPreset
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.Modal
 import ru.jux.launcher.ui.VersionEntry
@@ -78,6 +79,54 @@ fun ModalHost(state: LauncherState) {
         is Modal.Install -> InstallDialog(state, modal)
         is Modal.WorldList -> WorldsDialog(state, modal)
         is Modal.PackEditor -> PackDialog(state, modal)
+        is Modal.Share -> ShareDialog(state, modal.entry)
+        is Modal.ImportPack -> ImportPackDialog(state, modal)
+        is Modal.Graphics -> GraphicsDialog(state, modal.entry)
+    }
+}
+
+@Composable
+private fun GraphicsDialog(state: LauncherState, entry: VersionEntry) {
+    var preset by remember { mutableStateOf(GraphicsPreset.LOW) }
+    val running = state.isRunning(entry)
+    val close = { state.modal = null }
+
+    JuxDialog(
+        title = tr("Графика в игре", "In-game graphics"),
+        subtitle = entry.label,
+        onDismiss = close,
+        width = 480.dp,
+        actions = {
+            JuxButton(tr("Отмена", "Cancel"), onClick = close)
+            JuxButton(tr("Применить", "Apply"), style = ButtonStyle.PRIMARY, enabled = !running, onClick = {
+                close()
+                state.applyGraphics(entry, preset)
+            })
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            GraphicsPreset.entries.forEach { option ->
+                val selected = option == preset
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(JuxDimens.CornerMedium))
+                        .background(if (selected) JuxColors.AccentSoft else Color.Transparent)
+                        .clickable { preset = option }
+                        .padding(horizontal = 16.dp, vertical = 11.dp),
+                ) {
+                    Text(option.title, style = MaterialTheme.typography.titleMedium, color = if (selected) JuxColors.Accent else JuxColors.Text)
+                    Text(option.summary.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = JuxColors.TextMuted)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            if (running) tr("Закрой игру: при выходе она перезапишет настройки", "Close the game: it overwrites the settings when it exits")
+            else tr("Меняются только дальность, графика, частицы, облака и тени — остальное в игре останется как было", "Only render distance, graphics, particles, clouds and shadows change; everything else stays as it was"),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (running) JuxColors.Warning else JuxColors.TextMuted,
+        )
     }
 }
 

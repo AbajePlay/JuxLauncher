@@ -82,6 +82,8 @@ class Downloader(
         }
         if (pending.isEmpty()) {
             Log.debug("nothing to download, ${tasks.size} files already valid")
+            // Проверка могла посчитать хэши заново — без сохранения их пришлось бы считать и в следующий раз
+            VerifyCache.save()
             return
         }
 
@@ -142,7 +144,10 @@ class Downloader(
             } catch (e: Throwable) {
                 lastError = e
                 Log.debug("attempt $attempt/$maxAttempts failed for ${task.label}: ${e.message}")
-                if (attempt < maxAttempts) delay(200L * attempt * attempt)
+                // Файла нет (404/410) — повтор с того же адреса не поможет: сразу к следующему зеркалу или к ошибке
+                val missing = e is HttpStatusException && (e.code == 404 || e.code == 410)
+                if (missing && attempt >= urls.size) break
+                if (attempt < maxAttempts && !missing) delay(200L * attempt * attempt)
             }
         }
         throw IOException("failed to download ${task.label} from ${task.url}", lastError)
@@ -155,8 +160,8 @@ class Downloader(
         var counted = 0L
 
         try {
-            Http.client.newCall(Http.request(url)).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+            Http.downloads.newCall(Http.request(url)).execute().use { response ->
+                if (!response.isSuccessful) throw HttpStatusException(response.code, url)
                 val body = response.body ?: throw IOException("empty body")
 
                 val digest = if (task.sha1 != null) MessageDigest.getInstance("SHA-1") else null

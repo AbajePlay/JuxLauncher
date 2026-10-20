@@ -60,11 +60,13 @@ import ru.jux.launcher.ui.components.formatMoment
 import ru.jux.launcher.ui.theme.JuxColors
 import ru.jux.launcher.ui.theme.JuxDimens
 
-private class WorldsData(val worlds: List<WorldInfo>, val backups: Map<String, List<WorldBackup>>)
+// Адреса иконок (exists + время изменения) считаются вместе со списком в IO, а не в UI-потоке при каждой перерисовке
+private class WorldsData(val worlds: List<WorldInfo>, val backups: Map<String, List<WorldBackup>>, val icons: Map<String, String?>)
 
 private sealed interface Confirm {
     data class DeleteWorld(val world: WorldInfo) : Confirm
     data class Restore(val backup: WorldBackup) : Confirm
+    data class DeleteBackup(val backup: WorldBackup) : Confirm
 }
 
 @Composable
@@ -72,11 +74,15 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
     val entry = modal.entry
     val dir = state.gameDirOf(entry)
     val data by produceState<WorldsData?>(null, dir, state.instanceRevision) {
-        value = withContext(Dispatchers.IO) { WorldsData(Worlds.list(dir), Worlds.backups(dir).groupBy { it.world }) }
+        value = withContext(Dispatchers.IO) {
+            val worlds = Worlds.list(dir)
+            WorldsData(worlds, Worlds.backups(dir).groupBy { it.world }, worlds.associate { it.folder to ModIcons.localUrl(it.icon) })
+        }
     }
     var confirm by remember { mutableStateOf<Confirm?>(null) }
     val working = state.busy && state.busyEntry == entry
-    val locked = state.busy || state.gameRunning
+    val running = state.isRunning(entry)
+    val locked = state.busy || running
     val close = { state.modal = null }
 
     JuxDialog(
@@ -100,7 +106,7 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
             val loaded = data
             val deleted = loaded?.backups.orEmpty().filterKeys { folder -> loaded?.worlds.orEmpty().none { it.folder == folder } }
             val onRestore = { backup: WorldBackup -> confirm = Confirm.Restore(backup) }
-            val onDeleteBackup = { backup: WorldBackup -> state.deleteBackup(entry, backup) }
+            val onDeleteBackup = { backup: WorldBackup -> confirm = Confirm.DeleteBackup(backup) }
             when {
                 loaded == null -> Hint(tr("Ищу миры…", "Looking for worlds…"))
                 loaded.worlds.isEmpty() && deleted.isEmpty() -> Hint(tr("Миров пока нет", "No worlds yet"))
@@ -109,7 +115,7 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
                         WorldCard(
                             name = world.name,
                             details = detailsOf(world),
-                            icon = ModIcons.localUrl(world.icon),
+                            icon = loaded.icons[world.folder],
                             backups = loaded.backups[world.folder].orEmpty(),
                             locked = locked,
                             onRestore = onRestore,
@@ -135,11 +141,8 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
             }
         }
         if (working) {
-            Spacer(Modifier.height(12.dp))
-            Text(state.stage.ifBlank { tr("Работаю…", "Working…") }, style = MaterialTheme.typography.bodySmall, color = JuxColors.Text)
-            Spacer(Modifier.height(6.dp))
-            ThinProgress(state.progress?.fraction ?: 0f)
-        } else if (state.gameRunning) {
+            WorkingStrip(state)
+        } else if (running) {
             Spacer(Modifier.height(10.dp))
             Text(tr("Закрой игру, чтобы работать с мирами", "Close the game to manage worlds"), style = MaterialTheme.typography.bodySmall, color = JuxColors.Warning)
         }
@@ -150,14 +153,16 @@ fun WorldsDialog(state: LauncherState, modal: Modal.WorldList) {
                         if (Storage.trashAvailable) tr("Уйдёт в корзину.", "It goes to the Recycle Bin.") else tr("Вернуть можно только из бэкапа.", "Only a backup can bring it back.")
                     is Confirm.Restore -> tr("Вернуть «${pending.backup.world}» к бэкапу от ${formatMoment(pending.backup.createdAt)}? ", "Restore “${pending.backup.world}” to the backup from ${formatMoment(pending.backup.createdAt)}? ") +
                         tr("Текущий мир сохранится в бэкап.", "The current world is backed up first.")
+                    is Confirm.DeleteBackup -> tr("Удалить бэкап «${pending.backup.world}» от ${formatMoment(pending.backup.createdAt)}? Насовсем, без корзины.", "Delete the backup of “${pending.backup.world}” from ${formatMoment(pending.backup.createdAt)}? Permanently, no Recycle Bin.")
                 },
-                action = if (pending is Confirm.DeleteWorld) tr("Удалить", "Delete") else tr("Вернуть", "Restore"),
-                danger = pending is Confirm.DeleteWorld,
+                action = if (pending is Confirm.Restore) tr("Вернуть", "Restore") else tr("Удалить", "Delete"),
+                danger = pending !is Confirm.Restore,
                 onCancel = { confirm = null },
                 onConfirm = {
                     when (pending) {
                         is Confirm.DeleteWorld -> state.deleteWorld(entry, pending.world)
                         is Confirm.Restore -> state.restoreWorld(entry, pending.backup)
+                        is Confirm.DeleteBackup -> state.deleteBackup(entry, pending.backup)
                     }
                     confirm = null
                 },
@@ -254,3 +259,12 @@ private fun Hint(text: String) {
     }
 }
 
+
+// Прогресс бэкапа меняется на каждый файл мира: читаем его здесь, чтобы перерисовывалась только эта полоска, а не весь диалог
+@Composable
+private fun WorkingStrip(state: LauncherState) {
+    Spacer(Modifier.height(12.dp))
+    Text(state.stage.ifBlank { tr("Работаю…", "Working…") }, style = MaterialTheme.typography.bodySmall, color = JuxColors.Text)
+    Spacer(Modifier.height(6.dp))
+    ThinProgress(state.progress?.fraction ?: 0f)
+}

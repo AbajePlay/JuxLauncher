@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,9 +37,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.isDirectory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,7 +50,6 @@ import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.ContentKind
-import ru.jux.launcher.mods.IncompatibleModException
 import ru.jux.launcher.mods.InstalledItem
 import ru.jux.launcher.mods.ModManager
 import ru.jux.launcher.mods.Modrinth
@@ -58,6 +61,7 @@ import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.VersionEntry
 import ru.jux.launcher.ui.components.ButtonStyle
 import ru.jux.launcher.ui.components.ChoiceChip
+import ru.jux.launcher.ui.components.ConfirmDialog
 import ru.jux.launcher.ui.components.ContentRow
 import ru.jux.launcher.ui.components.JuxButton
 import ru.jux.launcher.ui.components.JuxDropdownMenu
@@ -137,7 +141,8 @@ private class ContentModel(
     private val gameVersion: String,
     private val scope: CoroutineScope,
     private val installer: suspend (ContentKind, Modrinth.SearchHit, Set<String>, (DownloadProgress) -> Unit) -> String,
-    private val onChanged: () -> Unit,
+    private val onScanned: (List<InstalledItem>) -> Unit,
+    private val onChanged: () -> Int,
 ) {
     val searches = ContentKind.entries.associateWith { kind ->
         CatalogSearch(scope) { query, offset ->
@@ -151,20 +156,29 @@ private class ContentModel(
     var message by mutableStateOf<String?>(null)
     var error by mutableStateOf<String?>(null)
 
-    val installedProjects: Set<String> get() = installed.values.flatten().mapNotNull { it.projectId }.toSet()
-    val updates: List<InstalledItem> get() = installed[ContentKind.MOD].orEmpty().filter { it.update != null }
+    // Пересчитываются, только когда меняется список установленного, а не на каждое обращение из каждой строки поиска
+    val installedProjects: Set<String> by derivedStateOf { installed.values.flatten().mapNotNull { it.projectId }.toSet() }
+    val updates: List<InstalledItem> by derivedStateOf { installed[ContentKind.MOD].orEmpty().filter { it.canUpdate } }
 
-    fun rescan() {
+    // Ревизия, которую каталог уже видел: своё же изменение не повод сканировать папку второй раз
+    private var seenRevision = -1
+
+    fun refresh(revision: Int) {
+        if (revision == seenRevision) return
+        seenRevision = revision
         scope.launch {
             installed = scanAll()
             scanned = true
         }
     }
 
-    private suspend fun scanAll(): Map<ContentKind, List<InstalledItem>> =
-        ContentKind.entries.associateWith { kind ->
-            ModManager.scan(dir, loader, gameVersion, kind, withUpdates = kind == ContentKind.MOD && loader.hasMods)
-        }
+    // Моды, шейдеры и ресурспаки сканируются одновременно: каждый скан ждёт ответов Modrinth
+    private suspend fun scanAll(): Map<ContentKind, List<InstalledItem>> = coroutineScope {
+        ContentKind.entries.map { kind ->
+            val withUpdates = kind == ContentKind.MOD && loader.hasMods
+            kind to async { ModManager.scan(dir, loader, gameVersion, kind, withUpdates).also { if (withUpdates) onScanned(it) } }
+        }.associate { (kind, scan) -> kind to scan.await() }
+    }
 
     fun install(kind: ContentKind, hit: Modrinth.SearchHit) = work(hit.projectId) {
         message = installer(kind, hit, installedProjects) { progress = it }
@@ -173,33 +187,6 @@ private class ContentModel(
     fun update(mod: InstalledItem) = work(mod.fileName) {
         ModManager.update(mod) { progress = it }
         message = tr("${mod.title} обновлён до ${mod.update?.versionNumber.orEmpty()}", "${mod.title} updated to ${mod.update?.versionNumber.orEmpty()}").trimEnd()
-    }
-
-    fun updateAll() = work(ALL) {
-        var pending = updates
-        var done = 0
-        var skipped = emptyList<String>()
-        do {
-            val before = done
-            val failed = ArrayList<InstalledItem>()
-            val reasons = ArrayList<String>()
-            for (mod in pending) {
-                try {
-                    ModManager.update(mod) { progress = it }
-                    done++
-                } catch (e: IncompatibleModException) {
-                    failed += mod
-                    reasons += e.message.orEmpty()
-                }
-            }
-            pending = failed
-            skipped = reasons
-        } while (pending.isNotEmpty() && done > before)
-        if (skipped.isEmpty()) {
-            message = tr("Обновлено модов: $done", "Mods updated: $done")
-        } else {
-            error = (listOf(tr("Обновлено модов: $done", "Mods updated: $done")) + skipped).joinToString(". ")
-        }
     }
 
     fun toggle(item: InstalledItem, enabled: Boolean) = work(item.fileName) {
@@ -230,12 +217,8 @@ private class ContentModel(
             }
             installed = scanAll()
             working = working - key
-            onChanged()
+            seenRevision = onChanged()
         }
-    }
-
-    companion object {
-        const val ALL = "*"
     }
 }
 
@@ -262,11 +245,13 @@ fun CatalogScreen(state: LauncherState) {
                 installer = { kind, hit, present, onProgress ->
                     state.installInto(entry, kind, hit.projectId, hit.title, present, onProgress)
                 },
+                onScanned = { state.modsScanned(entry, it) },
                 onChanged = { state.modsChanged(entry) },
             )
         }
     }
-    LaunchedEffect(content) { content?.rescan() }
+    // Ревизия меняется и когда моды правит сам лаунчер: обновление всех, починка после вылета
+    LaunchedEffect(content, state.instanceRevision) { content?.refresh(state.instanceRevision) }
 
     Column(Modifier.fillMaxSize().padding(JuxDimens.Gutter)) {
         Panel(Modifier.fillMaxWidth().weight(1f)) {
@@ -300,7 +285,7 @@ private fun ColumnScope.PacksTab(state: LauncherState, model: PacksModel) {
     ListBox(Modifier.weight(1f)) { listState ->
         SearchResults(model.search, listState) { hit -> PackRow(state, model, hit) }
     }
-    StatusStrip(state.progress.takeIf { state.installingPack != null }, model.error, null)
+    PackStatus(state, model)
 }
 
 @Composable
@@ -339,12 +324,21 @@ private fun loaderOf(hit: Modrinth.SearchHit): LoaderKind? =
 @Composable
 private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, model: ContentModel, tab: CatalogTab) {
     val kind = tab.kind
+    // Пока лаунчер сам работает с этой сборкой (обновляет все моды, ставит зависимость), руками её не трогаем
+    val jobRunning = state.busy && state.busyEntry?.key == target.key
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TargetPicker(state, target)
         Spacer(Modifier.weight(1f))
         val updates = model.updates
         if (tab == CatalogTab.INSTALLED && updates.isNotEmpty()) {
-            JuxButton(tr("Обновить все · ${updates.size}", "Update all · ${updates.size}"), icon = Icons.Default.Refresh, enabled = model.working.isEmpty(), onClick = model::updateAll)
+            WithTooltip(tr("Перед обновлением сохраню бэкап миров", "Worlds are backed up before updating")) {
+                JuxButton(
+                    tr("Обновить все · ${updates.size}", "Update all · ${updates.size}"),
+                    icon = Icons.Default.Refresh,
+                    enabled = model.working.isEmpty() && !state.busy && !state.isRunning(target),
+                    onClick = { state.updateMods(target) },
+                )
+            }
         }
         WithTooltip(tr("Открыть папку", "Open folder")) {
             IconButton(onClick = { state.openFolder(model.folder(kind)) }, modifier = Modifier.size(36.dp)) {
@@ -354,7 +348,7 @@ private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, m
     }
     Spacer(Modifier.height(10.dp))
     when {
-        kind == null -> ListBox(Modifier.weight(1f)) { InstalledList(state, target, model, it) }
+        kind == null -> ListBox(Modifier.weight(1f)) { InstalledList(state, target, model, jobRunning, it) }
         kind == ContentKind.SHADER && !state.supportsShaders(target) -> ListBox(Modifier.weight(1f)) {
             ListHint(
                 if (target.loader == LoaderKind.FORGE) tr("Шейдеры не работают с Forge — выбери Fabric или NeoForge", "Shaders don't work with Forge — pick Fabric or NeoForge")
@@ -375,11 +369,22 @@ private fun ColumnScope.ContentTab(state: LauncherState, target: VersionEntry, m
             )
             Spacer(Modifier.height(10.dp))
             ListBox(Modifier.weight(1f)) { listState ->
-                SearchResults(search, listState) { hit -> ContentHitRow(model, kind, hit) }
+                SearchResults(search, listState) { hit -> ContentHitRow(model, kind, hit, jobRunning) }
             }
         }
     }
-    StatusStrip(model.progress, model.error, model.message)
+    ContentStatus(state, model, jobRunning)
+}
+
+// Прогресс загрузки меняется 10 раз в секунду: читаем его в отдельной функции, чтобы перерисовывалась только полоса статуса, а не вся вкладка
+@Composable
+private fun PackStatus(state: LauncherState, model: PacksModel) {
+    StatusStrip(state.progress.takeIf { state.installingPack != null }, model.error, null)
+}
+
+@Composable
+private fun ContentStatus(state: LauncherState, model: ContentModel, jobRunning: Boolean) {
+    StatusStrip(model.progress ?: state.progress.takeIf { jobRunning }, model.error, model.message)
 }
 
 @Composable
@@ -400,7 +405,7 @@ private fun TargetPicker(state: LauncherState, target: VersionEntry) {
 }
 
 @Composable
-private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.SearchHit) {
+private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.SearchHit, jobRunning: Boolean) {
     val installed = hit.projectId in model.installedProjects
     val busy = hit.projectId in model.working
     ContentRow(
@@ -417,7 +422,7 @@ private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.
             else -> JuxButton(
                 tr("Установить", "Install"),
                 icon = JuxIcons.Download,
-                enabled = ContentModel.ALL !in model.working,
+                enabled = !jobRunning,
                 onClick = { model.install(kind, hit) },
             )
         }
@@ -425,9 +430,10 @@ private fun ContentHitRow(model: ContentModel, kind: ContentKind, hit: Modrinth.
 }
 
 @Composable
-private fun InstalledList(state: LauncherState, target: VersionEntry, model: ContentModel, listState: LazyListState) {
+private fun InstalledList(state: LauncherState, target: VersionEntry, model: ContentModel, jobRunning: Boolean, listState: LazyListState) {
     val kinds = listOfNotNull(ContentKind.MOD.takeIf { target.loader.hasMods }, ContentKind.SHADER, ContentKind.RESOURCE_PACK)
     val sections = kinds.map { it to model.installed[it].orEmpty() }.filter { it.second.isNotEmpty() }
+    var removing by remember { mutableStateOf<InstalledItem?>(null) }
     when {
         !model.scanned -> ListHint(tr("Смотрю, что стоит в ${target.label}…", "Checking what's in ${target.label}…"))
         sections.isEmpty() -> ListHint(tr("Пока пусто", "Nothing here yet"), tr("Открыть каталог", "Open catalog")) {
@@ -443,15 +449,25 @@ private fun InstalledList(state: LauncherState, target: VersionEntry, model: Con
                         modifier = Modifier.padding(start = 14.dp, top = 14.dp, bottom = 2.dp),
                     )
                 }
-                items(items, key = { it.file.toString() }) { item -> InstalledRow(model, item) }
+                items(items, key = { it.file.toString() }) { item -> InstalledRow(model, item, jobRunning) { removing = item } }
             }
         }
+    }
+    removing?.let { item ->
+        ConfirmDialog(
+            title = tr("Удалить ${item.title}?", "Delete ${item.title}?"),
+            text = if (item.file.isDirectory()) tr("Папка ${item.fileName} уйдёт из сборки", "The folder ${item.fileName} is removed from the pack")
+            else tr("Файл ${item.fileName} удалится насовсем", "The file ${item.fileName} is deleted permanently"),
+            action = tr("Удалить", "Delete"),
+            onDismiss = { removing = null },
+            onConfirm = { model.remove(item) },
+        )
     }
 }
 
 @Composable
-private fun InstalledRow(model: ContentModel, item: InstalledItem) {
-    val busy = item.fileName in model.working || ContentModel.ALL in model.working
+private fun InstalledRow(model: ContentModel, item: InstalledItem, jobRunning: Boolean, onRemove: () -> Unit) {
+    val busy = item.fileName in model.working || jobRunning
     val update = item.update
     val locked = item.fromBoost
     ContentRow(
@@ -472,7 +488,7 @@ private fun InstalledRow(model: ContentModel, item: InstalledItem) {
         }
         Spacer(Modifier.width(4.dp))
         WithTooltip(if (locked) tr("Мод FPS-буста", "FPS boost mod") else tr("Удалить", "Delete")) {
-            IconButton(onClick = { model.remove(item) }, enabled = !busy && !locked, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onRemove, enabled = !busy && !locked, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Default.Delete,
                     tr("Удалить", "Delete"),

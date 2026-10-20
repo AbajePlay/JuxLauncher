@@ -482,6 +482,25 @@ fun JuxDialog(
     }
 }
 
+/** Окно «точно удалить?» с двумя кнопками: отмена и красное действие. */
+@Composable
+fun ConfirmDialog(title: String, text: String, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    JuxDialog(
+        title = title,
+        onDismiss = onDismiss,
+        width = 440.dp,
+        actions = {
+            JuxButton(tr("Отмена", "Cancel"), onClick = onDismiss)
+            JuxButton(action, style = ButtonStyle.DANGER, onClick = {
+                onDismiss()
+                onConfirm()
+            })
+        },
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = JuxColors.Text)
+    }
+}
+
 @Composable
 fun NoteStrip(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
     Row(

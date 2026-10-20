@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -20,6 +21,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.jux.launcher.core.ClassArchives
+import ru.jux.launcher.core.GameWindowMode
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.MemoryRelease
 import ru.jux.launcher.core.Paths
@@ -27,6 +29,7 @@ import ru.jux.launcher.core.PlayArguments
 import ru.jux.launcher.core.PreloadResult
 import ru.jux.launcher.core.Preloader
 import ru.jux.launcher.core.Settings
+import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.SingleInstance
 import ru.jux.launcher.core.UrlProtocol
 import ru.jux.launcher.core.VerifyCache
@@ -92,15 +95,15 @@ fun main(args: Array<String>) {
                 height = 660.dp,
                 position = WindowPosition(Alignment.Center),
             )
-            var gameProcess by remember { mutableStateOf<Process?>(null) }
             var reportedReady by remember { mutableStateOf(false) }
-            var shownDuringGame by remember { mutableStateOf(false) }
+            var hiddenForGame by remember { mutableStateOf(false) }
+            var minimizedForGame by remember { mutableStateOf(false) }
             var raised by remember { mutableStateOf(0) }
 
             LaunchedEffect(Unit) {
                 for (handed in instance.requests) {
                     Log.info("another start handed over: ${handed.joinToString(" ").ifEmpty { "no arguments" }}")
-                    if (gameProcess != null) shownDuringGame = true
+                    hiddenForGame = false
                     windowState.isMinimized = false
                     raised++
                     PlayArguments.parse(handed.toTypedArray())
@@ -113,6 +116,7 @@ fun main(args: Array<String>) {
                 withContext(Dispatchers.IO) { runCatching { ClassArchives.removeStale() } }
             }
             LaunchedEffect(Unit) { state.checkForUpdates() }
+            LaunchedEffect(Unit) { state.checkModUpdates() }
             LaunchedEffect(Unit) { withContext(Dispatchers.IO) { UrlProtocol.register() } }
             LaunchedEffect(Unit) { state.refreshActivity() }
             LaunchedEffect(Unit) { OnlineCounter.start() }
@@ -121,26 +125,40 @@ fun main(args: Array<String>) {
                 DiscordPresence.start()
             }
 
-            LaunchedEffect(gameProcess) {
-                val process = gameProcess ?: return@LaunchedEffect
-                Log.info("waiting for the game to exit, pid=${runCatching { process.pid() }.getOrDefault(-1)}")
-                MemoryRelease.afterWindowClosed()
-                withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
-                Log.info("game exited with ${process.exitValue()}, showing the launcher again")
-                DiscordPresence.show(Presence.Launcher)
-                OnlineCounter.setPlaying(false)
-                state.gameExited(process.exitValue())
-                state.refreshActivity()
-                shownDuringGame = false
-                gameProcess = null
+            // Каждый клиент ждём отдельно: лаунчер возвращается, когда клиент упал или закрылся последний
+            val awaitGame: (Process) -> Unit = { process ->
+                // Лаунчер уходит с глаз сразу по нажатию «Играть», как раньше
+                when (Settings.current.gameWindow) {
+                    GameWindowMode.HIDE -> hiddenForGame = true
+                    GameWindowMode.MINIMIZE -> {
+                        minimizedForGame = true
+                        windowState.isMinimized = true
+                    }
+                    GameWindowMode.KEEP -> Unit
+                }
+                if (Settings.current.gameWindow != GameWindowMode.KEEP) scope.launch { MemoryRelease.afterWindowClosed() }
+                scope.launch {
+                    Log.info("waiting for the game to exit, pid=${runCatching { process.pid() }.getOrDefault(-1)}")
+                    withContext(Dispatchers.IO) { runCatching { process.waitFor() } }
+                    Log.info("game exited with ${process.exitValue()}")
+                    val show = state.gameExited(process, process.exitValue())
+                    state.refreshActivity()
+                    if (show) {
+                        hiddenForGame = false
+                        if (minimizedForGame) {
+                            minimizedForGame = false
+                            windowState.isMinimized = false
+                        }
+                    }
+                }
             }
 
-            if (gameProcess == null || shownDuringGame) {
+            if (!hiddenForGame) {
                 Window(
                     onCloseRequest = {
-                        if (gameProcess?.isAlive == true) {
+                        if (state.gameRunning) {
                             Log.info("window closed while the game runs, staying in the background")
-                            shownDuringGame = false
+                            hiddenForGame = true
                             scope.launch { MemoryRelease.afterWindowClosed() }
                         } else {
                             shutdownAndExit()
@@ -159,6 +177,9 @@ fun main(args: Array<String>) {
                         }
                         if (state.consumePendingPlay()) state.play()
                     }
+                    LaunchedEffect(Unit) {
+                        snapshotFlow { windowState.isMinimized }.collect { state.windowShown = !it }
+                    }
                     val theme = Settings.state.collectAsState().value.theme
                     LaunchedEffect(theme) { WindowChrome.applyTheme(window) }
                     LaunchedEffect(raised) {
@@ -168,10 +189,7 @@ fun main(args: Array<String>) {
                         }
                     }
                     JuxTheme {
-                        App(state, onGameStarted = {
-                            shownDuringGame = false
-                            gameProcess = it
-                        })
+                        App(state, onGameStarted = awaitGame)
                     }
                 }
             }
@@ -186,7 +204,7 @@ private fun bootstrap(args: Array<String>): SingleInstance {
     val instance = SingleInstance(Paths.root)
     when (instance.start(args.toList())) {
         SingleInstance.Role.PRIMARY -> Unit
-        SingleInstance.Role.HANDED_OVER -> exitProcess(0)
+        SingleInstance.Role.HANDED_OVER -> Shell.exitWithoutClassArchive(0)
         SingleInstance.Role.UNREACHABLE -> {
             JOptionPane.showMessageDialog(
                 null,
@@ -194,7 +212,7 @@ private fun bootstrap(args: Array<String>): SingleInstance {
                 "JuxLauncher",
                 JOptionPane.WARNING_MESSAGE,
             )
-            exitProcess(0)
+            Shell.exitWithoutClassArchive(0)
         }
     }
 

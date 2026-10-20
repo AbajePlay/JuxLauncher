@@ -23,7 +23,7 @@ object Pieces {
     private const val ATTEMPTS = 4
     private const val RETRY_MILLIS = 500L
 
-    val client: OkHttpClient by lazy { Http.client.newBuilder().protocols(listOf(Protocol.HTTP_1_1)).build() }
+    val client: OkHttpClient by lazy { Http.downloads.newBuilder().protocols(listOf(Protocol.HTTP_1_1)).build() }
 
     class Source(val url: String, val length: Long, val ranges: Boolean)
 

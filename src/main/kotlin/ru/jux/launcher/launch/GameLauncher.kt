@@ -45,6 +45,7 @@ object GameLauncher {
         serverAddress: String? = null,
         gameDir: Path = Settings.gameDir(versionId, loader),
         loaderVersion: String? = null,
+        logName: String = GAME_LOG,
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
         onNotice: (String) -> Unit = {},
@@ -69,7 +70,7 @@ object GameLauncher {
 
         logCommand(command, readyAccount)
 
-        val logFile = prepared.gameDir.resolve(GAME_LOG)
+        val logFile = prepared.gameDir.resolve(logName)
         val process = withContext(Dispatchers.IO) {
             ProcessBuilder(command)
                 .directory(prepared.gameDir.toFile())
@@ -152,12 +153,12 @@ object GameLauncher {
             } else {
                 versionId
             }
-            baseFiles?.await()
+            val checked = baseFiles?.await().orEmpty()
 
             val version = if (profileId == versionId) baseVersion
             else withContext(Dispatchers.IO) { installer.resolve(profileId) }
 
-            val installed = installer.install(version, gameDir, onStage, progress.sink("game"))
+            val installed = installer.install(version, gameDir, onStage, progress.sink("game"), checked)
             PreparedLaunch(installed, gameDir, awaitJava(), settings.memoryMb)
         }
     }

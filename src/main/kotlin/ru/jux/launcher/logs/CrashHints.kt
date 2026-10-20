@@ -31,7 +31,10 @@ object CrashHints {
 
     fun diagnose(logFile: Path?, crashReport: Path?, loader: LoaderKind, versionId: String, exitCode: Int): Diagnosis {
         val text = listOfNotNull(logFile, crashReport).mapNotNull(::tail).joinToString("\n")
-        return reason(text, loader, versionId) ?: Diagnosis(tr("Код выхода $exitCode — подробности в логах", "Exit code $exitCode — see the logs"))
+        return reason(text, loader, versionId) ?: Diagnosis(
+            if (exitCode == 0) tr("Игра закрылась, не успев открыться — подробности в логах", "The game closed before its window opened — see the logs")
+            else tr("Код выхода $exitCode — подробности в логах", "Exit code $exitCode — see the logs"),
+        )
     }
 
     internal fun reason(log: String, loader: LoaderKind, versionId: String): Diagnosis? {

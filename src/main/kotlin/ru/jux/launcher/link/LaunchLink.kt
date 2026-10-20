@@ -1,7 +1,10 @@
 package ru.jux.launcher.link
 
+import ru.jux.launcher.meta.GameVersions
+import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.mods.ContentKind
 import java.net.URLDecoder
+import java.net.URLEncoder
 
 enum class LinkContent(val key: String, val content: ContentKind?) {
     MOD("mod", ContentKind.MOD),
@@ -32,10 +35,10 @@ sealed interface LaunchLink {
         /** Пускает ли сервер с версии [id]: она основная или внутри диапазона (по major.minor). */
         fun accepts(id: String): Boolean {
             if (id == version) return true
-            val low = family(minVersion ?: return false) ?: return false
-            val high = family(version ?: return false) ?: return false
-            val own = family(id) ?: return false
-            return compareFamilies(low, own) <= 0 && compareFamilies(own, high) <= 0
+            val low = GameVersions.family(minVersion ?: return false) ?: return false
+            val high = GameVersions.family(version ?: return false) ?: return false
+            val own = GameVersions.family(id) ?: return false
+            return GameVersions.compareFamilies(low, own) <= 0 && GameVersions.compareFamilies(own, high) <= 0
         }
     }
 
@@ -49,15 +52,42 @@ sealed interface LaunchLink {
         val title: String get() = name ?: project
     }
 
+    /** Сборка, которой поделился игрок: версия игры, загрузчик и точные версии файлов с Modrinth. */
+    data class SharedPack(
+        val name: String,
+        val version: String,
+        val loader: LoaderKind,
+        val loaderVersion: String? = null,
+        val mods: List<String> = emptyList(),
+        val shaders: List<String> = emptyList(),
+        val resourcePacks: List<String> = emptyList(),
+    ) : LaunchLink {
+        val versionIds: List<String> get() = (mods + shaders + resourcePacks).distinct()
+
+        fun toUri(): String = uri(
+            "pack",
+            "name" to name,
+            "version" to version,
+            "loader" to loader.name.lowercase(),
+            "lv" to loaderVersion,
+            "mods" to mods.joinToString(",").ifEmpty { null },
+            "shaders" to shaders.joinToString(",").ifEmpty { null },
+            "resourcepacks" to resourcePacks.joinToString(",").ifEmpty { null },
+        )
+    }
+
     companion object {
         const val SCHEME = "juxlauncher"
 
-        private const val MAX_LENGTH = 2048
+        // Ссылка на сборку несёт по 9 символов на каждый файл, поэтому лимит с запасом
+        const val MAX_LENGTH = 8192
+        private const val MAX_FILES = 600
         private const val MAX_NAME = 64
         private val HOST_PORT = Regex("""^[A-Za-z0-9][A-Za-z0-9.-]{0,252}(?::(\d{1,5}))?$""")
         private val SLUG = Regex("""^[A-Za-z0-9_-]{1,64}$""")
         private val VERSION = Regex("""^[A-Za-z0-9][A-Za-z0-9._+-]{0,47}$""")
         private val LOADER = Regex("""^[a-z0-9_-]{1,32}$""")
+        private val VERSION_ID = Regex("""^[A-Za-z0-9]{8}$""")
         private val SPACES = Regex("""\s+""")
 
         fun find(args: List<String>): LaunchLink? = args.firstOrNull { it.startsWith("$SCHEME:") }?.let(::parse)
@@ -70,9 +100,20 @@ sealed interface LaunchLink {
             return when (rest.substringBefore('?').removeSuffix("/")) {
                 "join" -> join(params)
                 "install" -> install(params)
+                "pack" -> pack(params)
                 else -> Open
             }
         }
+
+        fun installUri(project: String, content: LinkContent, name: String?): String =
+            uri("install", "project" to project, "kind" to content.key, "name" to name)
+
+        private fun uri(action: String, vararg params: Pair<String, String?>): String =
+            params.mapNotNull { (key, value) -> value?.let { "$key=${encode(it)}" } }
+                .joinToString("&", prefix = "$SCHEME://$action?")
+
+        // Запятые в списках оставляем как есть: так ссылка короче и читается глазами
+        private fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8).replace("%2C", ",")
 
         private fun join(params: Map<String, String>): Join? {
             val address = params["address"]?.takeIf(::isAddress) ?: return null
@@ -94,22 +135,39 @@ sealed interface LaunchLink {
             )
         }
 
-        private fun version(params: Map<String, String>): String? = params["version"]?.takeIf { VERSION.matches(it) }
-
-        private val FAMILY = Regex("""^(\d+)\.(\d+)""")
-
-        /** major.minor версии игры числами; у снапшотов вроде 25w14a — null. */
-        internal fun family(id: String): Pair<Int, Int>? =
-            FAMILY.find(id)?.destructured?.let { (major, minor) -> major.toInt() to minor.toInt() }
-
-        private fun isBelow(low: String, high: String?): Boolean {
-            val l = family(low) ?: return false
-            val h = family(high ?: return false) ?: return false
-            return compareFamilies(l, h) < 0
+        private fun pack(params: Map<String, String>): SharedPack? {
+            val version = version(params) ?: return null
+            val loader = LoaderKind.entries.firstOrNull { it.name.equals(params["loader"], ignoreCase = true) } ?: return null
+            val mods = versionIds(params["mods"]) ?: return null
+            val shaders = versionIds(params["shaders"]) ?: return null
+            val resourcePacks = versionIds(params["resourcepacks"]) ?: return null
+            if (mods.size + shaders.size + resourcePacks.size > MAX_FILES) return null
+            if (mods.isNotEmpty() && !loader.hasMods) return null
+            return SharedPack(
+                name = params["name"]?.let(::cleanName) ?: "$version ${loader.label}",
+                version = version,
+                loader = loader,
+                loaderVersion = params["lv"]?.takeIf { loader.isModded && VERSION.matches(it) },
+                mods = mods,
+                shaders = shaders,
+                resourcePacks = resourcePacks,
+            )
         }
 
-        internal fun compareFamilies(a: Pair<Int, Int>, b: Pair<Int, Int>): Int =
-            compareValuesBy(a, b, { it.first }, { it.second })
+        /** Id версий Modrinth через запятую; хоть один кривой — ссылка битая. */
+        private fun versionIds(raw: String?): List<String>? {
+            if (raw.isNullOrEmpty()) return emptyList()
+            val ids = raw.split(',').filter { it.isNotEmpty() }
+            return ids.takeIf { list -> list.all { VERSION_ID.matches(it) } }?.distinct()
+        }
+
+        private fun version(params: Map<String, String>): String? = params["version"]?.takeIf { VERSION.matches(it) }
+
+        private fun isBelow(low: String, high: String?): Boolean {
+            val l = GameVersions.family(low) ?: return false
+            val h = GameVersions.family(high ?: return false) ?: return false
+            return GameVersions.compareFamilies(l, h) < 0
+        }
 
         internal fun isAddress(text: String): Boolean {
             val match = HOST_PORT.matchEntire(text) ?: return false

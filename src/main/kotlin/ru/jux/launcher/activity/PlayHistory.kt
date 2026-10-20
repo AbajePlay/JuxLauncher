@@ -49,6 +49,7 @@ object PlayHistory {
     private val TIME = Regex("""^\[(\d{2}):(\d{2}):(\d{2})""")
     private val FORGE_TIME = Regex("""^\[(\d{2})([A-Za-z]{3})(\d{4}) (\d{2}):(\d{2}):(\d{2})""")
     private val ROLLED = Regex("""^(\d{4})-(\d{2})-(\d{2})-\d+\.log\.gz$""")
+    private const val CONNECTING = "]: Connecting to "
     private val CONNECT = Regex("""]: Connecting to ([^\s,]+), \d+\s*$""")
     private val MONTHS = mapOf(
         "jan" to Month.JANUARY, "feb" to Month.FEBRUARY, "mar" to Month.MARCH, "apr" to Month.APRIL,
@@ -61,6 +62,9 @@ object PlayHistory {
 
     private val cache = ConcurrentHashMap<String, Cached>()
     private var cacheLoaded = false
+
+    // Экран активности сканирует логи раз в минуту — индекс переписывается на диск, только когда в нём что-то поменялось
+    private var cacheDirty = false
     internal var cacheFile: Path? = Paths.cache.resolve("activity-index-2.json")
     internal var historyFile: Path? = Paths.root.resolve("activity.json")
 
@@ -77,8 +81,8 @@ object PlayHistory {
                 .filter { it.resolve("logs").isDirectory() }
                 .flatMap { instance -> sessionsOf(instance, zone, seen) }
         }
-        cache.keys.retainAll(seen)
-        saveCache()
+        if (cache.keys.retainAll(seen)) cacheDirty = true
+        if (cacheDirty) saveCache()
         if (remember(found)) saveHistory()
         return history.values.sortedBy { it.start }
     }
@@ -118,6 +122,7 @@ object PlayHistory {
         historyLoaded = false
         cache.clear()
         cacheLoaded = false
+        cacheDirty = false
     }
 
     private fun sessionsOf(instance: Path, zone: ZoneId, seen: MutableSet<String>): List<PlaySession> {
@@ -141,6 +146,7 @@ object PlayHistory {
                 .onFailure { Log.warn("activity: could not read ${file.name}: ${it.message}") }
                 .getOrNull()
             cache[key] = Cached(size, modified, session)
+            cacheDirty = true
             session
         }
     }
@@ -176,7 +182,7 @@ object PlayHistory {
             val at = timestamp(line, date, zone) ?: continue
             if (first == null) first = at
             last = at
-            CONNECT.find(line)?.let { server = it.groupValues[1] }
+            if (CONNECTING in line) CONNECT.find(line)?.let { server = it.groupValues[1] }
         }
         val start = first ?: return null
         var end = last ?: return null
@@ -219,6 +225,6 @@ object PlayHistory {
 
     private fun saveCache() {
         val file = cacheFile ?: return
-        runCatching { file.writeAtomically(Json.encodeToString(cache.toMap())) }
+        runCatching { file.writeAtomically(Json.encodeToString(cache.toMap())) }.onSuccess { cacheDirty = false }
     }
 }

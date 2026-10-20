@@ -17,7 +17,7 @@ object GameEvents {
     private const val INTEGRATED = "Starting integrated minecraft server"
 
     fun parse(line: String): GameEvent? {
-        CONNECT.find(line)?.let { match ->
+        if ("Connecting to " in line) CONNECT.find(line)?.let { match ->
             val (host, port) = match.destructured
             return GameEvent.JoinedServer(address(host, port))
         }

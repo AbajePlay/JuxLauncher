@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,6 +55,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -77,10 +80,13 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.io.path.exists
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import ru.jux.launcher.core.Shortcuts
 import ru.jux.launcher.core.tr
@@ -188,7 +194,12 @@ private fun QuickPlayCard(state: LauncherState) {
                 if (state.busy) {
                     ProgressArea(state)
                 } else {
-                    PlayButton(installed = installed, enabled = entry != null, onClick = { state.play() })
+                    PlayButton(
+                        installed = installed,
+                        starting = entry != null && state.isStarting(entry),
+                        enabled = entry != null,
+                        onClick = { state.play() },
+                    )
                 }
             }
         }
@@ -196,23 +207,24 @@ private fun QuickPlayCard(state: LauncherState) {
 }
 
 @Composable
-private fun PlayButton(installed: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun PlayButton(installed: Boolean, starting: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val active = enabled && !starting
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val hovered by interaction.collectIsHoveredAsState()
     val scale by animateFloatAsState(
         when {
-            pressed && enabled -> 0.96f
-            hovered && enabled -> 1.02f
+            pressed && active -> 0.96f
+            hovered && active -> 1.02f
             else -> 1f
         },
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "playScale",
     )
-    val glow by animateDpAsState(if (hovered && enabled) 30.dp else 20.dp, label = "playGlow")
+    val glow = animateDpAsState(if (hovered && active) 30.dp else 20.dp, label = "playGlow")
     Button(
         onClick = onClick,
-        enabled = enabled,
+        enabled = active,
         shape = PillShape,
         interactionSource = interaction,
         colors = ButtonDefaults.buttonColors(
@@ -224,14 +236,18 @@ private fun PlayButton(installed: Boolean, enabled: Boolean, onClick: () -> Unit
         contentPadding = PaddingValues(horizontal = 32.dp),
         modifier = Modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(if (enabled) Modifier.glow(PillShape, JuxColors.Accent.copy(alpha = 0.55f), glow) else Modifier)
+            .then(if (active) Modifier.glow(PillShape, JuxColors.Accent.copy(alpha = 0.55f)) { glow.value } else Modifier)
             .defaultMinSize(minWidth = 260.dp)
             .height(72.dp),
     ) {
         Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(26.dp))
         Spacer(Modifier.width(10.dp))
         Text(
-            if (installed) tr("Играть", "Play") else tr("Установить и играть", "Install & play"),
+            when {
+                starting -> tr("Запускается…", "Starting…")
+                installed -> tr("Играть", "Play")
+                else -> tr("Установить и играть", "Install & play")
+            },
             fontWeight = FontWeight.Black,
             fontSize = if (installed) 20.sp else 17.sp,
             maxLines = 1,
@@ -239,11 +255,16 @@ private fun PlayButton(installed: Boolean, enabled: Boolean, onClick: () -> Unit
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
     val options = state.selectedOptions
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Кнопки обновлений появляются не всегда; если не влезли — уходят на вторую строку, а не за край карточки
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         if (entry.pack == null && entry.loader.supportsBoost) {
             val fabricReady = state.loaderSupport.supports(LoaderKind.FABRIC, entry.id)
             WithTooltip(boostHint(entry, options, fabricReady)) {
@@ -266,8 +287,23 @@ private fun InstanceChips(state: LauncherState, entry: VersionEntry) {
             )
         }
 
-        WithTooltip(tr("Миры и бэкапы", "Worlds & backups")) {
-            ChoiceChip(label = tr("Миры", "Worlds"), selected = false, onClick = { state.showWorlds(entry) }, icon = JuxIcons.World)
+        val modUpdates = state.modUpdates[entry.key] ?: 0
+        if (modUpdates > 0) {
+            // Запущенная игра держит jar-файлы модов открытыми — заменить их нельзя, поэтому кнопка ждёт, пока клиенты закроются
+            val tip = if (state.isRunning(entry)) {
+                tr("Закрой игру этой сборки — запущенные клиенты держат файлы модов", "Close this pack's game first: running clients keep the mod files open")
+            } else {
+                tr("Перед обновлением сохраню бэкап миров", "Worlds are backed up before updating")
+            }
+            WithTooltip(tip) {
+                ChoiceChip(
+                    label = tr("Обновить моды · $modUpdates", "Update mods · $modUpdates"),
+                    selected = true,
+                    onClick = { state.updateMods(entry) },
+                    enabled = !state.busy && !state.isRunning(entry),
+                    icon = Icons.Default.Refresh,
+                )
+            }
         }
 
         val pack = entry.pack
@@ -301,7 +337,8 @@ private fun EntryMenuButton(state: LauncherState, entry: VersionEntry) {
     var open by remember { mutableStateOf(false) }
     val close = { open = false }
     ReportOpen(open, state::trackMenu)
-    Box {
+    // Высотой с соседние кнопки, чтобы в ряду с переносом стоять с ними на одной линии
+    Box(Modifier.height(38.dp), contentAlignment = Alignment.Center) {
         IconButton(onClick = { open = true }, modifier = Modifier.size(32.dp)) {
             Icon(Icons.Default.MoreVert, tr("Действия со сборкой", "Pack actions"), tint = JuxColors.TextMuted, modifier = Modifier.size(20.dp))
         }
@@ -335,6 +372,10 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
         close()
         state.showLogs(entry)
     })
+    JuxMenuItem(tr("Графика…", "Graphics…"), icon = JuxIcons.Tune, enabled = !state.isRunning(entry), onClick = {
+        close()
+        state.modal = Modal.Graphics(entry)
+    })
     JuxMenuItem(tr("Ярлык на рабочем столе", "Desktop shortcut"), icon = JuxIcons.OpenInNew, enabled = Shortcuts.isAvailable, onClick = {
         close()
         state.createShortcut(entry)
@@ -346,6 +387,10 @@ fun EntryMenuItems(state: LauncherState, entry: VersionEntry, close: () -> Unit,
     JuxMenuItem(tr("Сделать копию…", "Duplicate…"), icon = JuxIcons.Copy, enabled = !state.busy, onClick = {
         close()
         state.modal = Modal.PackEditor(PackMode.Copy(entry))
+    })
+    JuxMenuItem(tr("Поделиться ссылкой…", "Share a link…"), icon = Icons.Default.Share, enabled = installed || hasFolder, onClick = {
+        close()
+        state.modal = Modal.Share(entry)
     })
     entry.pack?.let { pack ->
         JuxMenuItem(tr("Название и иконка…", "Name & icon…"), icon = Icons.Default.Edit, onClick = {
@@ -417,30 +462,36 @@ private fun progressDetails(progress: DownloadProgress?): String = when {
 
 @Composable
 private fun ProgressBar(fraction: Float) {
-    val animated by animateFloatAsState(if (fraction < 0f) 0f else fraction, label = "progress")
+    // Анимированные значения читаются только при раскладке: полоса двигается без перерисовки всей карточки
+    val animated = animateFloatAsState(if (fraction < 0f) 0f else fraction, label = "progress")
     BoxWithConstraints(
         Modifier.fillMaxWidth().height(8.dp)
             .clip(PillShape)
             .background(JuxColors.SurfaceHigh)
     ) {
         if (fraction < 0f) {
-            val sweep by rememberInfiniteTransition(label = "indeterminate").animateFloat(
+            val sweep = rememberInfiniteTransition(label = "indeterminate").animateFloat(
                 initialValue = -0.35f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing)),
                 label = "sweep",
             )
+            val travel = maxWidth
             Box(
                 Modifier.fillMaxHeight()
                     .width(maxWidth * 0.35f)
-                    .offset(x = maxWidth * sweep)
+                    .offset { IntOffset((travel * sweep.value).roundToPx(), 0) }
                     .clip(PillShape)
                     .background(JuxColors.Accent)
             )
         } else {
             Box(
                 Modifier.fillMaxHeight()
-                    .fillMaxWidth(animated)
+                    .layout { measurable, constraints ->
+                        val width = (constraints.maxWidth * animated.value).roundToInt()
+                        val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+                        layout(width, placeable.height) { placeable.place(0, 0) }
+                    }
                     .clip(PillShape)
                     .background(JuxColors.Accent)
             )
@@ -580,8 +631,11 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
     val dotSize by animateDpAsState(if (installed) 7.dp else 0.dp, label = "installedDot")
 
     val requester = remember { BringIntoViewRequester() }
-    LaunchedEffect(selected, state.keyboardMoves) {
-        if (selected && state.keyboardMoves > 0) requester.bringIntoView()
+    // Счётчик стрелок читает только выбранная строка: остальные не перерисовываются на каждое нажатие
+    if (selected) {
+        LaunchedEffect(state.keyboardMoves) {
+            if (state.keyboardMoves > 0) requester.bringIntoView()
+        }
     }
 
     ContextMenuBox(
@@ -625,6 +679,12 @@ private fun EntryRow(state: LauncherState, entry: VersionEntry, clicks: DoubleCl
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Tag(entry.loader.label, loaderColor(entry.loader))
+                val modUpdates = state.modUpdates[entry.key] ?: 0
+                if (modUpdates > 0) {
+                    WithTooltip(tr("Можно обновить модов: $modUpdates", "Mods with updates: $modUpdates")) {
+                        Tag("↑ $modUpdates", JuxColors.Success)
+                    }
+                }
             }
             Text(
                 if (entry.pack != null) entry.id else formatReleaseDate(entry.version.releaseTime),
@@ -645,7 +705,9 @@ private fun PackIcon(state: LauncherState, pack: Modpack, size: Dp) {
 private fun ServersPanel(state: LauncherState, modifier: Modifier) {
     LaunchedEffect(Unit) {
         while (true) {
-            state.refreshServers()
+            state.awaitWindowShown()
+            // Вернулись на главную или развернули окно — пингуем только тех, кого не пинговали последнюю минуту
+            state.refreshServers(force = false)
             delay(60_000)
         }
     }

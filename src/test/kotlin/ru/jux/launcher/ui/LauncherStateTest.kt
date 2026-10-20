@@ -15,7 +15,14 @@ import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderSupport
 import ru.jux.launcher.meta.ManifestVersion
 import ru.jux.launcher.meta.VersionManifest
+import ru.jux.launcher.mods.ContentKind
+import ru.jux.launcher.mods.InstalledItem
+import ru.jux.launcher.mods.Modrinth
 import ru.jux.launcher.packs.Modpack
+import ru.jux.launcher.discord.Presence
+import java.io.InputStream
+import java.io.OutputStream
+import java.nio.file.Path
 
 class LauncherStateTest {
 
@@ -201,6 +208,69 @@ class LauncherStateTest {
 
         state.openLink(LaunchLink.Install("terralith", LinkContent.DATAPACK, null, null, "Terralith"))
         assertEquals(Modal.Install(LaunchLink.Install("terralith", LinkContent.DATAPACK, null, null, "Terralith")), state.modal)
+    }
+
+    @Test
+    fun `the mod update badge counts only mods updated by hand`() {
+        val state = LauncherState(scope, preload(setOf("26.3")))
+        val entry = state.entryFor("26.3", LoaderKind.FABRIC)
+        val newer = Modrinth.Version(id = "newerver", projectId = "AANobbMI")
+        fun mod(fromBoost: Boolean, update: Modrinth.Version?) = InstalledItem(
+            file = Path.of("mod.jar"), kind = ContentKind.MOD, enabled = true, sha1 = "", projectId = "AANobbMI", versionId = "olderver",
+            title = "Mod", versionNumber = "", iconUrl = null, fromBoost = fromBoost, update = update,
+        )
+
+        state.modsScanned(entry, listOf(mod(fromBoost = false, newer), mod(fromBoost = true, newer), mod(fromBoost = false, null)))
+        assertEquals(1, state.modUpdates[entry.key])
+        state.modsScanned(entry, emptyList())
+        assertEquals(0, state.modUpdates[entry.key])
+    }
+
+    @Test
+    fun `a shared pack link opens its own dialog`() {
+        val link = LaunchLink.SharedPack("Друзья", "26.3", LoaderKind.FABRIC)
+        val state = LauncherState(scope, preload(setOf("26.3")), link = link)
+        assertEquals(link, (state.modal as Modal.ImportPack).link)
+    }
+
+    private class FinishedProcess : Process() {
+        override fun getOutputStream(): OutputStream = OutputStream.nullOutputStream()
+        override fun getInputStream(): InputStream = InputStream.nullInputStream()
+        override fun getErrorStream(): InputStream = InputStream.nullInputStream()
+        override fun waitFor(): Int = 0
+        override fun exitValue(): Int = 0
+        override fun destroy() = Unit
+    }
+
+    @Test
+    fun `several clients run at once and the launcher comes back after the last one`() {
+        val state = LauncherState(scope, preload(setOf("26.3")))
+        val entry = state.entryFor("26.3", LoaderKind.VANILLA)
+        val presence = Presence.Playing(versionId = "26.3", loaderLabel = null, server = null, mods = 0, startedAt = 0, pack = null)
+        val first = RunningGame(entry, FinishedProcess(), Path.of("latest-game.log"), 0, presence).apply { opened = true }
+        val second = RunningGame(entry, FinishedProcess(), Path.of("latest-game-2.log"), 0, presence).apply { opened = true }
+        state.games = listOf(first, second)
+
+        assertTrue(state.isRunning(entry))
+        assertFalse(state.isRunning(state.entryFor("26.3", LoaderKind.FABRIC)))
+        assertFalse(state.gameExited(first.process, 0), "another client is still open")
+        assertEquals(listOf(second), state.games)
+        assertTrue(state.gameExited(second.process, 0), "the last client closed")
+        assertFalse(state.gameRunning)
+    }
+
+    @Test
+    fun `a client that closes before its window opens is reported and brings the launcher back`() {
+        val state = LauncherState(scope, preload(setOf("26.3")))
+        val entry = state.entryFor("26.3", LoaderKind.VANILLA)
+        val presence = Presence.Playing(versionId = "26.3", loaderLabel = null, server = null, mods = 0, startedAt = 0, pack = null)
+        val open = RunningGame(entry, FinishedProcess(), Path.of("latest-game.log"), 0, presence).apply { opened = true }
+        val broken = RunningGame(entry, FinishedProcess(), Path.of("latest-game-2.log"), 0, presence)
+        state.games = listOf(open, broken)
+
+        assertTrue(state.gameExited(broken.process, 0))
+        assertEquals("Игра не открылась", state.toast?.title)
+        assertEquals(listOf(open), state.games)
     }
 
     @Test

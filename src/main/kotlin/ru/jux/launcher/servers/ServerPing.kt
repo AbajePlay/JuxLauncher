@@ -32,7 +32,9 @@ class ServerStatus(
     val versionName: String,
     val motd: String,
     val favicon: ByteArray?,
-)
+) {
+    fun withFavicon(icon: ByteArray?) = ServerStatus(latencyMs, playersOnline, playersMax, versionName, motd, icon)
+}
 
 object ServerPing {
 

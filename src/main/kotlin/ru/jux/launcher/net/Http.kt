@@ -48,6 +48,12 @@ object Http {
             .build()
     }
 
+    /**
+     * Для файлов (моды, ассеты, иконки, скины): их лаунчер сам хранит на диске, а HTTP-кэш нужен только
+     * для ответов API — иначе каждая загрузка пишется на диск дважды и вытесняет метаданные из кэша.
+     */
+    val downloads: OkHttpClient by lazy { client.newBuilder().cache(null).build() }
+
     private val metadataClient: OkHttpClient by lazy {
         client.newBuilder()
             .callTimeout(15, TimeUnit.SECONDS)

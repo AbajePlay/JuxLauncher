@@ -87,12 +87,21 @@ object VerifyCache {
         val mtime = attrs.lastModifiedTime().toMillis()
         val cached = entries[k]
         if (cached != null && cached.size == attrs.size() && cached.mtime == mtime) {
-            return cached.sha1.toHex().equals(expectedSha1, ignoreCase = true)
+            return expectedSha1.length == 40 && cached.sha1.contentEquals(expectedSha1.hexToBytes())
         }
 
         val actual = runCatching { sha1Of(path) }.getOrElse { return false }
         remember(k, attrs.size(), mtime, actual)
         return actual.equals(expectedSha1, ignoreCase = true)
+    }
+
+    /** SHA-1 файла; пока размер и время изменения те же, берётся из индекса — и после перезапуска тоже. */
+    fun sha1(path: Path): String {
+        val attrs = Files.readAttributes(path, BasicFileAttributes::class.java)
+        val k = key(path)
+        val mtime = attrs.lastModifiedTime().toMillis()
+        entries[k]?.takeIf { it.size == attrs.size() && it.mtime == mtime }?.let { return it.sha1.toHex() }
+        return sha1Of(path).also { remember(k, attrs.size(), mtime, it) }
     }
 
     fun record(path: Path, sha1: String) {

@@ -21,6 +21,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.BasicFileAttributes
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.fileSize
@@ -44,6 +45,23 @@ class VersionInstaller(
 
     private companion object {
         const val MOJANG_LIBRARIES = "https://libraries.minecraft.net/"
+
+        private class ParsedIndex(val file: Path, val size: Long, val mtime: Long, val index: AssetIndex)
+
+        // Индекс ассетов — ~0,5 МБ JSON на тысячи объектов; разбирать его заново на каждый запуск той же версии незачем
+        @Volatile
+        private var lastIndex: ParsedIndex? = null
+
+        fun readAssetIndex(file: Path): AssetIndex? {
+            val attrs = runCatching { Files.readAttributes(file, BasicFileAttributes::class.java) }.getOrNull()
+            val mtime = attrs?.lastModifiedTime()?.toMillis()
+            lastIndex?.takeIf { attrs != null && it.file == file && it.size == attrs.size() && it.mtime == mtime }
+                ?.let { return it.index }
+            return runCatching { Json.decodeFromString<AssetIndex>(file.readText()) }
+                .onFailure { e -> Log.warn("asset index unreadable: ${e.message}") }
+                .getOrNull()
+                ?.also { index -> if (attrs != null && mtime != null) lastIndex = ParsedIndex(file, attrs.size(), mtime, index) }
+        }
     }
 
     fun resolve(id: String): VersionJson {
@@ -85,8 +103,11 @@ class VersionInstaller(
         val logConfig: Path?,
     )
 
-    suspend fun prefetch(version: VersionJson, onProgress: (DownloadProgress) -> Unit = {}) {
-        downloader.run(plan(version, onProgress).tasks, onProgress)
+    /** Скачивает и проверяет файлы версии; возвращает проверенные, чтобы [install] не проверял их второй раз. */
+    suspend fun prefetch(version: VersionJson, onProgress: (DownloadProgress) -> Unit = {}): Set<DownloadTask> {
+        val tasks = plan(version, onProgress).tasks
+        downloader.run(tasks, onProgress)
+        return tasks.toHashSet()
     }
 
     suspend fun install(
@@ -94,12 +115,13 @@ class VersionInstaller(
         gameDir: Path,
         onStage: (String) -> Unit = {},
         onProgress: (DownloadProgress) -> Unit = {},
+        checked: Set<DownloadTask> = emptySet(),
     ): InstalledVersion {
         onStage(tr("Чтение метаданных", "Reading metadata"))
         val plan = plan(version, onProgress)
 
         onStage(tr("Загрузка файлов", "Downloading files"))
-        downloader.run(plan.tasks, onProgress)
+        downloader.run(if (checked.isEmpty()) plan.tasks else plan.tasks.filter { it !in checked }, onProgress)
 
         onStage(tr("Распаковка библиотек", "Extracting libraries"))
         val nativesDir = NativesExtractor.extract(version.id, plan.nativeJars)
@@ -122,11 +144,7 @@ class VersionInstaller(
     private suspend fun plan(version: VersionJson, onProgress: (DownloadProgress) -> Unit): Plan {
         Paths.ensureBaseDirs()
         val assetIndexFile = ensureAssetIndex(version, onProgress)
-        val assetIndex = assetIndexFile?.let {
-            runCatching { Json.decodeFromString<AssetIndex>(it.readText()) }
-                .onFailure { e -> Log.warn("asset index unreadable: ${e.message}") }
-                .getOrNull()
-        }
+        val assetIndex = assetIndexFile?.let(::readAssetIndex)
 
         val tasks = ArrayList<DownloadTask>(4096)
         val classpath = ArrayList<Path>(64)

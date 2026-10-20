@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import ru.jux.launcher.core.Backdrop
 import ru.jux.launcher.core.DEFAULT_ACCENT
+import ru.jux.launcher.core.GameWindowMode
 import ru.jux.launcher.core.Language
 import ru.jux.launcher.core.LauncherSettings
 import ru.jux.launcher.core.Paths
@@ -83,6 +84,7 @@ fun SettingsScreen(state: LauncherState) {
         LanguagePanel(settings)
         AppearancePanel(state, settings)
         MemoryPanel(settings)
+        GameWindowPanel(settings)
 
         Panel(Modifier.fillMaxWidth()) {
             Column {
@@ -263,6 +265,32 @@ private fun MemoryPanel(settings: LauncherSettings) {
                     ChoiceChip(tr("${formatMemory(settings.memoryMb)} (своё)", "${formatMemory(settings.memoryMb)} (custom)"), selected = true, onClick = {})
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GameWindowPanel(settings: LauncherSettings) {
+    Panel(Modifier.fillMaxWidth()) {
+        Column {
+            SectionTitle(tr("Когда запускаешь игру", "When you launch the game"))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GameWindowMode.entries.forEach { mode ->
+                    ChoiceChip(mode.title, selected = settings.gameWindow == mode, onClick = {
+                        Settings.update { it.copy(gameWindow = mode) }
+                    })
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                when (settings.gameWindow) {
+                    GameWindowMode.HIDE -> tr("Лаунчер спрячется и вернётся, когда игра закроется", "The launcher hides and comes back when the game closes")
+                    GameWindowMode.MINIMIZE -> tr("Лаунчер свернётся в панель задач и развернётся после игры", "The launcher minimizes to the taskbar and restores after the game")
+                    GameWindowMode.KEEP -> tr("Лаунчер останется на экране, пока идёт игра", "The launcher stays on screen while you play")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = JuxColors.TextMuted,
+            )
         }
     }
 }

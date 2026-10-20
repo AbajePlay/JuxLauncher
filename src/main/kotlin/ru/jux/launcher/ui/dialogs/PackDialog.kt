@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ru.jux.launcher.core.tr
+import ru.jux.launcher.link.LaunchLink
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.VersionKind
 import ru.jux.launcher.ui.LauncherState
@@ -81,6 +82,43 @@ private fun CreatePack(state: LauncherState) {
                 ChoiceChip(kind.label, selected = loader == kind, onClick = { loader = kind })
             }
         }
+        Spacer(Modifier.height(18.dp))
+        LinkField(state)
+    }
+}
+
+/** Ссылка на сборку от друга: в Discord и Telegram juxlauncher:// не нажимается, поэтому её вставляют сюда. */
+@Composable
+private fun LinkField(state: LauncherState) {
+    var text by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    val open = {
+        val link = LaunchLink.parse(text.trim())
+        if (link == null || link == LaunchLink.Open) {
+            error = tr("Это не ссылка JuxLauncher — скопируй её целиком", "This isn't a JuxLauncher link — copy all of it")
+        } else {
+            state.openLink(link)
+        }
+    }
+    Label(tr("Или сборка друга по ссылке", "Or a friend's pack from a link"))
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        JuxTextField(
+            text,
+            {
+                text = it
+                error = null
+            },
+            "juxlauncher://pack?…",
+            Modifier.weight(1f),
+            leadingIcon = JuxIcons.Link,
+            isError = error != null,
+            onSubmit = { if (text.isNotBlank()) open() },
+        )
+        JuxButton(tr("Открыть", "Open"), enabled = text.isNotBlank(), onClick = open)
+    }
+    error?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(it, style = MaterialTheme.typography.bodySmall, color = JuxColors.Danger)
     }
 }
 

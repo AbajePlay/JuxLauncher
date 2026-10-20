@@ -7,6 +7,7 @@ import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.net.Http
+import java.util.concurrent.ConcurrentHashMap
 
 enum class LoaderKind(val label: String) {
     VANILLA("Vanilla"),
@@ -80,7 +81,7 @@ object LoaderRepository {
         "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
     private const val NEOFORGE_MAVEN = "https://maven.neoforged.net/releases/net/neoforged/neoforge"
 
-    private val cache = HashMap<String, List<LoaderVersion>>()
+    private val cache = ConcurrentHashMap<String, List<LoaderVersion>>()
 
     fun versionsFor(kind: LoaderKind, gameVersion: String): List<LoaderVersion> {
         if (kind == LoaderKind.VANILLA || gameVersion.isBlank()) return emptyList()
@@ -245,6 +246,16 @@ object LoaderRepository {
 
     private val MAVEN_VERSION = Regex("<version>([^<]+)</version>")
 
-    private fun mavenVersions(url: String): List<String> =
-        MAVEN_VERSION.findAll(Http.getString(url)).map { it.groupValues[1] }.toList()
+    private class Fetched(val at: Long, val versions: List<String>)
+
+    // maven-metadata.xml Forge — сотни КБ; без памяти он качался заново для списка версий игры и для каждой новой версии
+    private val maven = ConcurrentHashMap<String, Fetched>()
+    private const val MAVEN_MILLIS = 10 * 60_000L
+
+    private fun mavenVersions(url: String): List<String> {
+        val now = System.currentTimeMillis()
+        maven[url]?.takeIf { now - it.at < MAVEN_MILLIS }?.let { return it.versions }
+        return MAVEN_VERSION.findAll(Http.getString(url)).map { it.groupValues[1] }.toList()
+            .also { maven[url] = Fetched(now, it) }
+    }
 }

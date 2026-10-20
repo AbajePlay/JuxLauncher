@@ -10,6 +10,7 @@ import java.nio.file.Path
 import java.util.Base64
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
+import kotlin.system.exitProcess
 
 object Shell {
 
@@ -87,6 +88,16 @@ object Shell {
                 Kernel32.INSTANCE.CloseHandle(info.hProcess)
             }
         }.onFailure { Log.warn("hidden process failed: ${it.message}") }.getOrNull()
+    }
+
+    /**
+     * Завершает процесс в обход обычного выхода JVM. Нужен короткоживущему процессу, который только передал
+     * аргументы уже запущенному лаунчеру: при обычном выходе JVM записала бы архив классов (CDS) почти пустым,
+     * и все следующие запуски грузились бы без него в несколько раз медленнее.
+     */
+    fun exitWithoutClassArchive(code: Int): Nothing {
+        if (isWindows) runCatching { Kernel32.INSTANCE.TerminateProcess(Kernel32.INSTANCE.GetCurrentProcess(), code) }
+        exitProcess(code)
     }
 
     fun powershell(script: String): String {
