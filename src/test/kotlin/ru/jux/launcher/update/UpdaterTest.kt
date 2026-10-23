@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import ru.jux.launcher.core.Authenticode
 import ru.jux.launcher.core.toHex
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -34,6 +35,21 @@ class UpdaterTest {
         assertFalse(Updater.isNewer("1.0", "1.0.0"))
         assertFalse(Updater.isNewer("1.1.0-beta", "1.1.0"))
         assertFalse(Updater.isNewer("0.9", "1.0.0"))
+    }
+
+    @Test
+    fun `a broken signature or a lost signature stops the update`() {
+        val installer = Path.of("update.msi")
+        val app = Path.of("JuxLauncher.exe")
+        fun check(update: Authenticode.Status, own: Authenticode.Status) =
+            Updater.verifySignature(installer, app) { if (it == installer) update else own }
+
+        check(Authenticode.Status.Unsigned, Authenticode.Status.Unsigned)
+        check(Authenticode.Status.Valid, Authenticode.Status.Unsigned)
+        check(Authenticode.Status.Valid, Authenticode.Status.Valid)
+        assertThrows<IOException> { check(Authenticode.Status.Invalid, Authenticode.Status.Unsigned) }
+        assertThrows<IOException> { check(Authenticode.Status.Unsigned, Authenticode.Status.Valid) }
+        assertThrows<IOException> { check(Authenticode.Status.Invalid, Authenticode.Status.Valid) }
     }
 
     @Test

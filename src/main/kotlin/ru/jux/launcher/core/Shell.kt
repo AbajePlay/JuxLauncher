@@ -1,13 +1,11 @@
 package ru.jux.launcher.core
 
 import com.sun.jna.platform.win32.Kernel32
-import com.sun.jna.platform.win32.WinBase
-import com.sun.jna.platform.win32.WinDef
-import com.sun.jna.ptr.IntByReference
+import com.sun.jna.platform.win32.Shell32
+import com.sun.jna.platform.win32.WinUser
 import java.awt.Desktop
 import java.net.URI
 import java.nio.file.Path
-import java.util.Base64
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.system.exitProcess
@@ -49,46 +47,27 @@ object Shell {
         if (!viaDesktop) onError(tr("Не удалось открыть проводник. Папка: $dir", "Could not open Explorer. Folder: $dir"))
     }
 
+    /** Открывает в браузере только http(s): ShellExecute по произвольной строке мог бы запустить файл. */
     fun browse(url: String): Boolean {
+        if (!isWebLink(url)) {
+            Log.warn("not opening a non-web link: $url")
+            return false
+        }
         runCatching {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 Desktop.getDesktop().browse(URI(url))
                 return true
             }
         }.onFailure { Log.debug("Desktop.browse failed: ${it.message}") }
-        return runCatching { ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", url).start() }.isSuccess
-    }
-
-    private const val CREATE_NO_WINDOW = 0x08000000
-
-    fun runHidden(commandLine: String, waitMs: Int = 30_000): Int? {
-        if (!isWindows) return null
+        if (!isWindows) return false
         return runCatching {
-            val startup = WinBase.STARTUPINFO()
-            val info = WinBase.PROCESS_INFORMATION()
-            val created = Kernel32.INSTANCE.CreateProcess(
-                null, commandLine, null, null, false,
-                WinDef.DWORD(CREATE_NO_WINDOW.toLong()), null, null, startup, info,
-            )
-            if (!created) {
-                Log.warn("CreateProcess failed with ${Kernel32.INSTANCE.GetLastError()}")
-                return@runCatching null
-            }
-            try {
-                if (waitMs <= 0) return@runCatching 0
-                if (Kernel32.INSTANCE.WaitForSingleObject(info.hProcess, waitMs) != WinBase.WAIT_OBJECT_0) {
-                    Log.warn("hidden process did not finish within $waitMs ms")
-                    return@runCatching null
-                }
-                val exit = IntByReference()
-                Kernel32.INSTANCE.GetExitCodeProcess(info.hProcess, exit)
-                exit.value
-            } finally {
-                Kernel32.INSTANCE.CloseHandle(info.hThread)
-                Kernel32.INSTANCE.CloseHandle(info.hProcess)
-            }
-        }.onFailure { Log.warn("hidden process failed: ${it.message}") }.getOrNull()
+            val result = Shell32.INSTANCE.ShellExecute(null, "open", url, null, null, WinUser.SW_SHOWNORMAL)
+            (result?.toLong() ?: 0L) > 32
+        }.onFailure { Log.warn("ShellExecute failed: ${it.message}") }.getOrDefault(false)
     }
+
+    internal fun isWebLink(url: String): Boolean =
+        runCatching { URI(url) }.getOrNull()?.let { it.scheme?.lowercase() in setOf("http", "https") && !it.host.isNullOrBlank() } ?: false
 
     /**
      * Завершает процесс в обход обычного выхода JVM. Нужен короткоживущему процессу, который только передал
@@ -99,11 +78,4 @@ object Shell {
         if (isWindows) runCatching { Kernel32.INSTANCE.TerminateProcess(Kernel32.INSTANCE.GetCurrentProcess(), code) }
         exitProcess(code)
     }
-
-    fun powershell(script: String): String {
-        val encoded = Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE))
-        return "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded"
-    }
-
-    fun psLiteral(value: String): String = "'" + value.replace("'", "''") + "'"
 }

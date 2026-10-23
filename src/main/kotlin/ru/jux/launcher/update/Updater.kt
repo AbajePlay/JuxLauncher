@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
+import ru.jux.launcher.core.Authenticode
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
 import ru.jux.launcher.core.Paths
@@ -99,6 +100,7 @@ object Updater {
             val app = Shell.appExecutable
                 ?: throw IOException(tr("Обновление ставится только в установленный лаунчер, не при запуске из IDE", "Updates install only into the installed launcher, not when run from an IDE"))
             val file = download(update) { fraction, speed -> _state.value = UpdateState.Downloading(update, fraction, speed) }
+            withContext(Dispatchers.IO) { verifySignature(file, app) }
             _state.value = UpdateState.Installing(update)
             startInstaller(file, app, update.version)
         } catch (e: CancellationException) {
@@ -125,6 +127,22 @@ object Updater {
             if (a != b) return a > b
         }
         return localSuffix != null && remoteSuffix == null
+    }
+
+    /**
+     * Битую подпись не ставим никогда. Пока лаунчер не подписан, неподписанный установщик допустим;
+     * как только лаунчер подписан, обновление обязано быть подписано тоже — иначе это подмена.
+     */
+    internal fun verifySignature(installer: Path, app: Path, status: (Path) -> Authenticode.Status = Authenticode::status) {
+        val update = status(installer)
+        val own = status(app)
+        Log.info("update signature: $update, launcher signature: $own")
+        if (update == Authenticode.Status.Invalid) {
+            throw IOException(tr("подпись установщика обновления повреждена — ставить его нельзя", "the update installer's signature is broken — it will not be installed"))
+        }
+        if (own == Authenticode.Status.Valid && update != Authenticode.Status.Valid) {
+            throw IOException(tr("установщик обновления не подписан, а лаунчер подписан — ставить его нельзя", "the update installer is unsigned while the launcher is signed — it will not be installed"))
+        }
     }
 
     internal fun validate(manifest: UpdateManifest) {
@@ -225,22 +243,22 @@ object Updater {
     private suspend fun startInstaller(installer: Path, app: Path, version: String) {
         val dir = Paths.cache.resolve("update")
         val ready = dir.resolve("ready")
-        val script = withContext(Dispatchers.IO) {
-            UpdateSplash.prepare(dir)
+        withContext(Dispatchers.IO) {
+            val splash = UpdateSplash.prepare(dir)
             ready.deleteIfExists()
             val msi = installer.toString().endsWith(".msi")
-            UpdateSplash.script(
+            val job = UpdateSplash.job(
                 launcher = ProcessHandle.current().pid(),
                 installer = if (msi) "msiexec.exe" else installer.toString(),
                 arguments = if (msi) msiArguments(installer, app.parent, Shortcuts.appOnDesktop(app).exists(), dir.resolve("install.log")) else "",
                 app = app,
-                assets = dir,
                 version = version,
                 ready = ready,
             )
+            runCatching { UpdateSplash.start(splash, job) }.getOrElse {
+                throw IOException(tr("Не удалось запустить установщик обновления: ${it.message}", "Could not start the update installer: ${it.message}"), it)
+            }
         }
-        Shell.runHidden(Shell.powershell(script), waitMs = 0)
-            ?: throw IOException(tr("Не удалось запустить установщик обновления", "Could not start the update installer"))
         Log.info("update installer handed over: $installer")
         withTimeoutOrNull(READY_MILLIS) { while (!ready.exists()) delay(50) }
             ?: Log.warn("update splash did not show up in $READY_MILLIS ms")

@@ -32,10 +32,59 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
 }
 
+val isWindows = System.getProperty("os.name").lowercase().contains("win")
+val copyrightLine = "Copyright © 2026 Jux"
+
+// Заставка обновления собирается в обычный exe и ставится вместе с лаунчером (app/resources), чтобы
+// на машине игрока не запускать PowerShell и не компилировать код на лету — так делают вирусы, и Defender это видит.
+val appResources = layout.buildDirectory.dir("generated/appResources")
+val compileUpdateSplash = tasks.register("compileUpdateSplash") {
+    group = "build"
+    description = "Compiles src/main/csharp into JuxUpdate.exe, the splash shown while an update installs"
+    val sources = fileTree("src/main/csharp") { include("*.cs") }
+    val icon = file("branding/JuxLauncher.ico")
+    val numeric = project.version.toString().substringBefore('-')
+    val exe = appResources.map { it.file("windows/JuxUpdate.exe") }
+    inputs.files(sources)
+    inputs.file(icon)
+    inputs.property("version", project.version.toString())
+    inputs.property("copyright", copyrightLine)
+    outputs.file(exe)
+    onlyIf { isWindows }
+    doLast {
+        val csc = File(System.getenv("WINDIR") ?: "C:\\Windows", "Microsoft.NET/Framework64/v4.0.30319/csc.exe")
+        check(csc.exists()) { "No .NET Framework compiler at $csc" }
+        val info = temporaryDir.resolve("AssemblyInfo.cs")
+        info.writeText(
+            """
+            using System.Reflection;
+            [assembly: AssemblyTitle("JuxLauncher Update")]
+            [assembly: AssemblyDescription("Shows progress while JuxLauncher installs its update")]
+            [assembly: AssemblyCompany("Jux")]
+            [assembly: AssemblyProduct("JuxLauncher")]
+            [assembly: AssemblyCopyright("$copyrightLine")]
+            [assembly: AssemblyVersion("$numeric.0")]
+            [assembly: AssemblyFileVersion("$numeric.0")]
+            [assembly: AssemblyInformationalVersion("${project.version}")]
+            """.trimIndent()
+        )
+        val out = exe.get().asFile.also { it.parentFile.mkdirs() }
+        val command = listOf(
+            csc.absolutePath, "/nologo", "/target:winexe", "/optimize+", "/codepage:65001",
+            "/win32icon:${icon.absolutePath}", "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", "/out:${out.absolutePath}",
+        ) + sources.files.sortedBy { it.name }.map { it.absolutePath } + info.absolutePath
+        val process = ProcessBuilder(command).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
+        check(process.waitFor() == 0 && out.exists()) { "csc failed:\n$output" }
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
     systemProperty("user.home", temporaryDir.absolutePath)
     systemProperty("user.language", "ru")
+    dependsOn(compileUpdateSplash)
+    systemProperty("compose.application.resources.dir", appResources.get().dir("windows").asFile.absolutePath)
 }
 
 compose.desktop {
@@ -60,7 +109,9 @@ compose.desktop {
             packageName = "JuxLauncher"
             packageVersion = project.version.toString()
             vendor = "Jux"
-            description = "Minecraft launcher"
+            description = "JuxLauncher Minecraft Launcher"
+            copyright = copyrightLine
+            appResourcesRootDir.set(appResources)
 
             modules(
                 "java.desktop",
@@ -244,5 +295,40 @@ afterEvaluate {
         })
     }
 
+    tasks.named("prepareAppResources") { dependsOn(compileUpdateSplash) }
     tasks.named("createDistributable") { finalizedBy(deployDesktop) }
+}
+
+tasks.register("scanWithDefender") {
+    group = "verification"
+    description = "Scans the built installers and app images with Microsoft Defender and fails if it finds anything"
+    onlyIf { isWindows }
+    doLast {
+        val platforms = File(System.getenv("ProgramData") ?: "C:\\ProgramData", "Microsoft/Windows Defender/Platform")
+        val mpCmdRun = (platforms.listFiles().orEmpty().sortedByDescending { it.name }.map { it.resolve("MpCmdRun.exe") } +
+            File(System.getenv("ProgramFiles") ?: "C:\\Program Files", "Windows Defender/MpCmdRun.exe"))
+            .firstOrNull { it.exists() }
+            ?: throw GradleException("MpCmdRun.exe not found: is Microsoft Defender installed?")
+
+        val targets = listOf(
+            "compose/binaries/main-release/msi",
+            "compose/binaries/main-release/exe",
+            "compose/binaries/main-release/app",
+            "compose/binaries/main/app",
+            "generated/appResources",
+        ).map { layout.buildDirectory.dir(it).get().asFile }.filter { it.exists() }
+        if (targets.isEmpty()) throw GradleException("Nothing to scan: run packageReleaseMsi or createDistributable first")
+
+        targets.forEach { target ->
+            val process = ProcessBuilder(mpCmdRun.absolutePath, "-Scan", "-ScanType", "3", "-File", target.absolutePath, "-DisableRemediation")
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText()
+            when (val code = process.waitFor()) {
+                0 -> logger.lifecycle("Defender: clean — $target")
+                2 -> throw GradleException("Defender found threats in $target:\n$output")
+                else -> throw GradleException("Defender scan of $target failed with code $code:\n$output")
+            }
+        }
+    }
 }

@@ -1,6 +1,7 @@
 package ru.jux.launcher.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
@@ -17,22 +18,51 @@ class ShellTest {
     lateinit var dir: Path
 
     @Test
-    fun `a hidden process reports its exit code`() {
-        assertEquals(3, Shell.runHidden("cmd.exe /c exit 3"))
-    }
-
-    @Test
-    fun `a powershell script survives any quoting`() {
-        val script = "if (${Shell.psLiteral("it's \"quoted\"")} -eq 'it''s \"quoted\"') { exit 7 } else { exit 1 }"
-        assertEquals(7, Shell.runHidden(Shell.powershell(script)))
-    }
-
-    @Test
-    fun `a shortcut is written, even with a quote in its name`() {
-        val link = dir.resolve("Minecraft it's 26.3.lnk")
+    fun `a shortcut is written, even with a quote and cyrillic in its name`() {
+        val link = dir.resolve("Майнкрафт it's 26.3.lnk")
         val notepad = Path.of(System.getenv("WINDIR") ?: "C:\\Windows", "notepad.exe")
-        Shortcuts.create(link, notepad, PlayArguments.of("26.3", LoaderKind.FABRIC), "test")
+        val arguments = PlayArguments.of("26.3", LoaderKind.FABRIC, "сборка")
+        Shortcuts.create(link, notepad, arguments, "JuxLauncher: Майнкрафт")
         assertTrue(link.exists())
+
+        val read = readShortcut(link)
+        assertEquals(notepad.toString().lowercase(), read[0].lowercase())
+        assertEquals(arguments, read[1])
+        assertEquals(notepad.parent.toString().lowercase(), read[2].lowercase())
+        assertEquals("JuxLauncher: Майнкрафт", read[3])
+    }
+
+    @Test
+    fun `a shortcut is overwritten in place`() {
+        val link = dir.resolve("Minecraft.lnk")
+        val notepad = Path.of(System.getenv("WINDIR") ?: "C:\\Windows", "notepad.exe")
+        Shortcuts.create(link, notepad, PlayArguments.of("1.20.1", LoaderKind.VANILLA), "first")
+        Shortcuts.create(link, notepad, PlayArguments.of("26.3", LoaderKind.FABRIC), "second")
+        assertEquals(PlayArguments.of("26.3", LoaderKind.FABRIC), readShortcut(link)[1])
+    }
+
+    @Test
+    fun `only web links are opened`() {
+        assertTrue(Shell.isWebLink("https://modrinth.com/mod/sodium"))
+        assertTrue(Shell.isWebLink("http://example.com"))
+        assertFalse(Shell.isWebLink("C:\\Windows\\System32\\calc.exe"))
+        assertFalse(Shell.isWebLink("file:///C:/Windows/System32/calc.exe"))
+        assertFalse(Shell.isWebLink("javascript:alert(1)"))
+        assertFalse(Shell.isWebLink("https://"))
+        assertFalse(Shell.isWebLink("not a url"))
+        assertFalse(Shell.browse("C:\\Windows\\System32\\calc.exe"))
+    }
+
+    /** Тест читает ярлык через WScript.Shell — в самом лаунчере PowerShell больше не используется. */
+    private fun readShortcut(link: Path): List<String> {
+        val script = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
+            "\$l = (New-Object -ComObject WScript.Shell).CreateShortcut('${link.toString().replace("'", "''")}'); " +
+            "\$l.TargetPath; \$l.Arguments; \$l.WorkingDirectory; \$l.Description"
+        val encoded = java.util.Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE))
+        val process = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded).start()
+        val output = process.inputStream.readBytes().toString(Charsets.UTF_8)
+        assertEquals(0, process.waitFor())
+        return output.trimStart('\uFEFF').lines()
     }
 
     @Test

@@ -12,10 +12,9 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.net.Http
-import java.awt.Desktop
-import java.net.URI
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
@@ -281,17 +280,8 @@ class MicrosoftAuth(private val clientId: String = AuthConfig.clientId) {
     }
 
     private fun openBrowser(url: String) {
-        runCatching {
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(URI(url))
-                return
-            }
-        }.onFailure { Log.debug("Desktop.browse failed: ${it.message}") }
-
-        runCatching {
-            ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", url).start()
-        }.onFailure {
-            throw AuthException(tr("Не удалось открыть браузер. Откройте ссылку вручную:\n$url", "Could not open the browser. Open the link manually:\n$url"), it)
+        if (!Shell.browse(url)) {
+            throw AuthException(tr("Не удалось открыть браузер. Откройте ссылку вручную:\n$url", "Could not open the browser. Open the link manually:\n$url"))
         }
     }
 }

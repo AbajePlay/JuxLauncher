@@ -1,53 +1,63 @@
 package ru.jux.launcher.update
 
-import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.tr
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.writeLines
 
+/**
+ * Заставка обновления — JuxUpdate.exe из папки установки (собирается из src/main/csharp). Перед запуском
+ * копируется в кэш: msiexec заменит файлы в папке установки, а запущенный exe заменить нельзя.
+ */
 internal object UpdateSplash {
 
-    private val ASSETS = listOf("brand/wordmark.png", "fonts/Montserrat-Regular.ttf", "fonts/Montserrat-Bold.ttf", "update/splash.cs")
+    const val EXE = "JuxUpdate.exe"
 
-    fun prepare(dir: Path) {
+    private val ASSETS = listOf("brand/wordmark.png", "fonts/Montserrat-Regular.ttf", "fonts/Montserrat-Bold.ttf")
+
+    private val installed: Path?
+        get() = System.getProperty("compose.application.resources.dir")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { Path.of(it).resolve(EXE) }
+            ?.takeIf { it.exists() }
+
+    fun prepare(dir: Path): Path {
         dir.createDirectories()
         ASSETS.forEach { resource ->
             val stream = UpdateSplash::class.java.getResourceAsStream("/$resource") ?: throw IOException(tr("В лаунчере нет $resource", "The launcher is missing $resource"))
             stream.use { Files.copy(it, dir.resolve(resource.substringAfterLast('/')), StandardCopyOption.REPLACE_EXISTING) }
         }
+        val exe = installed ?: throw IOException(tr("В лаунчере нет $EXE — переустановите его", "The launcher is missing $EXE — reinstall it"))
+        return Files.copy(exe, dir.resolve(EXE), StandardCopyOption.REPLACE_EXISTING)
     }
 
-    fun script(launcher: Long, installer: String, arguments: String, app: Path, assets: Path, version: String, ready: Path): String {
-        val install = if (arguments.isEmpty()) {
-            "Start-Process -FilePath \$installer -Wait"
-        } else {
-            "Start-Process -FilePath \$installer -ArgumentList \$arguments.Replace('/qn', '/passive') -Wait"
-        }
-        val run = listOf(
-            "\$launcher", "\$installer", "\$arguments", "\$app", "\$assets",
-            Shell.psLiteral(version),
-            Shell.psLiteral(tr("Обновляю JuxLauncher до $version", "Updating JuxLauncher to $version")),
-            Shell.psLiteral(tr("Обновление не встало (код {0}), открываю прежнюю версию", "Update failed (code {0}), opening the previous version")),
-            "\$ready",
-        ).joinToString(", ")
-        return listOf(
-            "\$launcher = $launcher",
-            "\$installer = ${Shell.psLiteral(installer)}",
-            "\$arguments = ${Shell.psLiteral(arguments)}",
-            "\$app = ${Shell.psLiteral(app.toString())}",
-            "\$assets = ${Shell.psLiteral(assets.toString())}",
-            "\$ready = ${Shell.psLiteral(ready.toString())}",
-            "try {",
-            "    Add-Type -Path (Join-Path \$assets 'splash.cs') -ReferencedAssemblies System.Windows.Forms, System.Drawing",
-            "    [void][JuxUpdateSplash]::Run($run)",
-            "} catch {",
-            "    Wait-Process -Id \$launcher -Timeout 60 -ErrorAction SilentlyContinue",
-            "    $install",
-            "    Start-Process -FilePath \$app",
-            "}",
-        ).joinToString("\n")
+    /** Строки job.txt в том порядке, в каком их читает Program.Main. */
+    fun job(launcher: Long, installer: String, arguments: String, app: Path, version: String, ready: Path): List<String> {
+        val lines = listOf(
+            launcher.toString(),
+            installer,
+            arguments,
+            app.toString(),
+            version,
+            tr("Обновляю JuxLauncher до $version", "Updating JuxLauncher to $version"),
+            tr("Обновление не встало (код {0}), открываю прежнюю версию", "Update failed (code {0}), opening the previous version"),
+            ready.toString(),
+        )
+        require(lines.none { '\n' in it || '\r' in it }) { "job.txt lines must be single-line" }
+        return lines
+    }
+
+    fun start(exe: Path, job: List<String>) {
+        val file = exe.resolveSibling("job.txt")
+        file.writeLines(job, Charsets.UTF_8)
+        ProcessBuilder(exe.toString(), file.toString())
+            .directory(exe.parent.toFile())
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start()
     }
 }
