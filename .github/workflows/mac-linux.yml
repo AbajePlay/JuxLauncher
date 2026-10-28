@@ -51,7 +51,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq rpm fakeroot xvfb imagemagick libgl1-mesa-dri
+          # xrandr нужен LWJGL 2 (Minecraft до 1.13), он есть на любом Linux с рабочим столом
+          sudo apt-get install -yq rpm fakeroot xvfb imagemagick libgl1-mesa-dri x11-xserver-utils
 
       - name: Tests
         run: |

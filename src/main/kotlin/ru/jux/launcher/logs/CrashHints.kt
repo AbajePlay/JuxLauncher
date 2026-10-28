@@ -66,6 +66,13 @@ object CrashHints {
                 tr("Файлы игры повреждены", "Game files are damaged"),
                 CrashFix(NoticeAction.VERIFY_FILES),
             )
+            // LWJGL 2 (до 1.13) спрашивает режимы экрана у программы xrandr; нет её — вылет на старте
+            "LinuxDisplay.getAvailableDisplayModes" in log -> Diagnosis(
+                tr(
+                    "Старым версиям Minecraft на Linux нужна программа xrandr — поставь пакет x11-xserver-utils (Debian, Ubuntu) или xrandr",
+                    "Old Minecraft versions on Linux need xrandr — install x11-xserver-utils (Debian, Ubuntu) or xrandr",
+                ),
+            )
             DRIVER.any { it in log } -> Diagnosis(
                 tr("Видеокарта не открыла окно игры — обнови драйвер", "The graphics card could not open the game window — update the driver"),
             )

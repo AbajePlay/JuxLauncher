@@ -20,6 +20,15 @@ class CrashHintsTest {
     }
 
     @Test
+    fun `lwjgl 2 without xrandr on linux asks for the package`() {
+        val log = """
+            Caused by: java.lang.ArrayIndexOutOfBoundsException: 0
+            	at org.lwjgl.opengl.LinuxDisplay.getAvailableDisplayModes(LinuxDisplay.java:951)
+        """.trimIndent()
+        assertTrue(CrashHints.reason(log, LoaderKind.VANILLA, "1.12.2")!!.reason.contains("xrandr"))
+    }
+
+    @Test
     fun `memory problems come with the matching fix`() {
         assertEquals(
             CrashFix(NoticeAction.MORE_MEMORY),
