@@ -217,22 +217,16 @@ private fun Header(state: LauncherState, snapshot: FriendsSnapshot?) {
         )
     }
     val total = snapshot?.friends?.size ?: 0
-    val online = snapshot?.onlineCount ?: 0
 
     Panel(Modifier.fillMaxWidth()) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.width(150.dp)) {
+                // Кто в сети — в разделах списка и числом у пункта «Друзья» слева; здесь только сколько всего
+                Row(Modifier.width(150.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(tr("Друзья", "Friends"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = JuxColors.Text)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Dot(if (online > 0) JuxColors.Success else JuxColors.TextMuted)
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            if (total == 0) tr("пока никого", "nobody yet") else tr("$online в сети из $total", "$online online of $total"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = JuxColors.TextMuted,
-                            maxLines = 1,
-                        )
+                    if (total > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(total.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = JuxColors.TextMuted)
                     }
                 }
                 JuxTextField(
@@ -383,10 +377,16 @@ private fun RowScope.Whereabouts(state: LauncherState, friend: Friend) {
         FriendState.SERVER -> {
             val favicon = (state.serverStatus[friend.address.orEmpty()] as? PingState.Online)?.status?.favicon
             ServerIcon(favicon, 16.dp, 4.dp)
-            Text(friend.serverTitle ?: tr("Сервер", "Server"), style = small, fontWeight = FontWeight.Bold, color = JuxColors.Text, maxLines = 1)
-            if (friend.serverName != null && friend.address != null) {
-                Text(friend.address, style = small, color = JuxColors.TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            }
+            // У всех серверов одинаково — адрес, без имени из каталога; длинный режем, а не плашку версии
+            Text(
+                friend.address ?: tr("Сервер", "Server"),
+                style = small,
+                fontWeight = FontWeight.Bold,
+                color = JuxColors.Text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
             VersionTag(friend)
         }
         FriendState.SINGLE -> {
@@ -543,7 +543,8 @@ internal fun JoinVersionItems(state: LauncherState, friend: Friend, close: () ->
 
 internal fun rangeText(server: LaunchLink.Join): String? {
     val max = server.version ?: return null
-    val name = server.title
+    // Адрес, а не имя из каталога: так же, как в строке друга
+    val name = server.address
     return server.minVersion?.let { tr("$name пускает $it – $max", "$name accepts $it – $max") } ?: tr("$name на $max", "$name runs $max")
 }
 

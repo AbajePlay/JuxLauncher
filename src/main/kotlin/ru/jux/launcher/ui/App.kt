@@ -187,13 +187,14 @@ private fun NavRail(state: LauncherState) {
     }
 }
 
-// Число на значке — входящие заявки; всплывающих уведомлений о них нет
+// Число на значке — входящие заявки (всплывающих уведомлений о них нет), зелёное справа — сколько друзей в сети
 @Composable
 private fun FriendsNavItem(state: LauncherState) {
     val account by state.friendsAccount.collectAsState()
     val snapshot by state.friendsSnapshot.collectAsState()
     val incoming = if (account != null) snapshot?.incoming?.size ?: 0 else 0
-    NavItem(tr("Друзья", "Friends"), JuxIcons.Friends, state.screen == Screen.FRIENDS, badge = incoming) { state.screen = Screen.FRIENDS }
+    val online = if (account != null) snapshot?.onlineCount ?: 0 else 0
+    NavItem(tr("Друзья", "Friends"), JuxIcons.Friends, state.screen == Screen.FRIENDS, badge = incoming, online = online) { state.screen = Screen.FRIENDS }
 }
 
 @Composable
@@ -203,6 +204,7 @@ private fun NavItem(
     selected: Boolean,
     badge: Int = 0,
     badgeAlert: Boolean = false,
+    online: Int = 0,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -282,6 +284,21 @@ private fun NavItem(
             modifier = Modifier.weight(1f),
             maxLines = 1,
         )
+        if (online > 0) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(JuxColors.Success))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (online > 99) "99+" else online.toString(),
+                color = JuxColors.Success,
+                style = TextStyle(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 13.sp,
+                    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+                ),
+                maxLines = 1,
+            )
+        }
     }
 }
 

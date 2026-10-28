@@ -126,7 +126,7 @@ internal fun FriendVersionsDialog(state: LauncherState, friend: Friend) {
     val initial = state.friendJoinKey(friend)
     var choice by remember(friend) { mutableStateOf(options.firstOrNull { it.entry?.key == initial }?.entry ?: options.firstOrNull()?.entry) }
     val close = { state.modal = null }
-    val title = friend.serverTitle.orEmpty()
+    val title = friend.address.orEmpty()
 
     JuxDialog(
         title = tr("Версия для $title", "Version for $title"),
@@ -183,7 +183,7 @@ internal fun FriendPackDialog(state: LauncherState, modal: Modal.FriendPack) {
 
     JuxDialog(
         title = tr("Играть с ${friend.nick}", "Play with ${friend.nick}"),
-        subtitle = listOfNotNull(friend.serverName, friend.address).distinct().joinToString(" · "),
+        subtitle = friend.address.orEmpty(),
         onDismiss = close,
         width = 520.dp,
         actions = {

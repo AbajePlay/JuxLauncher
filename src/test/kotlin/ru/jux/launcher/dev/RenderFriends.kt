@@ -104,6 +104,23 @@ internal fun renderFriends(
 
     render("friends", 1040, 1060, 0, app)
     render("friends-first-screen", 1040, 660, 0, app)
+
+    // Другие серверы: из каталога juxmc.ru (имя + адрес), неизвестный (только адрес), длинный адрес, IP
+    Friends.show(
+        FriendsAccount("Abaje", "", System.currentTimeMillis()),
+        snapshot.copy(
+            incoming = emptyList(),
+            friends = listOf(
+                kirill,
+                Friend("Nastya", head("slim/alex"), FriendState.SERVER, "play.example.net", "Остров", "1.20", "1.21.4", "1.21.4", "vanilla", "nastya_mc"),
+                Friend("MrDenis", head("wide/efe"), FriendState.SERVER, "mc.example.org:25570", version = "26.1", loader = "vanilla", gameNick = "MrDenis"),
+                Friend("Sanya_228", head("wide/noor"), FriendState.SERVER, "survival.my-very-long-server-address.example.org", version = "1.20.1", loader = "forge", gameNick = "Sanya"),
+                Friend("Lexa", head("wide/zuri"), FriendState.SERVER, "93.184.216.34:25565", version = "1.12.2", loader = "vanilla", gameNick = "Lexa"),
+            ),
+        ),
+    )
+    render("friends-other-servers", 1040, 660, 0, app)
+    Friends.show(FriendsAccount("Abaje", "", System.currentTimeMillis()), snapshot)
     render("friends-menu", 1040, 660, 0) {
         JuxTheme {
             Box(Modifier.fillMaxSize()) {
