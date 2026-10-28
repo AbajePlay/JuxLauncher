@@ -156,7 +156,8 @@ class FriendJoinTest {
     @Test
     fun `friends see the client that is on a server`() {
         val state = state()
-        val idle = ProcessBuilder("cmd", "/c", "exit").start()
+        // Любой короткий процесс: cmd есть только на Windows, а тесты идут и на macOS и Linux
+        val idle = ProcessBuilder(if (ru.jux.launcher.core.Shell.isWindows) listOf("cmd", "/c", "exit") else listOf("true")).start()
         val single = RunningGame(state.entryFor("26.3", LoaderKind.FABRIC), idle, Path.of("a.log"), 0, presence(null), "Abaje")
         val online = RunningGame(state.entryFor("26.2", LoaderKind.VANILLA), idle, Path.of("b.log"), 0, presence("mc.virtusmine.fun"), "Abaje_2")
         val lan = RunningGame(state.entryFor("26.2", LoaderKind.VANILLA), idle, Path.of("c.log"), 0, presence("192.168.0.4"), "Abaje")
