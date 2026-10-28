@@ -170,6 +170,8 @@ fun main(args: Array<String>) {
                     onPreviewKeyEvent = { state.onKey(it) },
                 ) {
                     window.minimumSize = java.awt.Dimension(900, 560)
+                    // macOS берёт вид заголовка при создании окна, поэтому тема — до показа, а не в эффекте
+                    if (Shell.isMac) WindowChrome.applyTheme(window)
                     LaunchedEffect(Unit) {
                         WindowChrome.applyIcon(window)
                         if (!reportedReady) {
