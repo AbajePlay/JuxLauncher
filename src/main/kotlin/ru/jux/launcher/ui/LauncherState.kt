@@ -56,6 +56,12 @@ import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.discord.GameEvent
 import ru.jux.launcher.discord.GameEvents
 import ru.jux.launcher.discord.Presence
+import ru.jux.launcher.friends.Friend
+import ru.jux.launcher.friends.FriendAction
+import ru.jux.launcher.friends.Friends
+import ru.jux.launcher.friends.FriendsException
+import ru.jux.launcher.friends.LinkPoll
+import ru.jux.launcher.friends.LinkStart
 import ru.jux.launcher.instance.CarryOver
 import ru.jux.launcher.instance.CarryPlan
 import ru.jux.launcher.instance.CarryResult
@@ -106,7 +112,7 @@ import ru.jux.launcher.ui.components.formatTotalMemory
 import ru.jux.launcher.update.UpdateManifest
 import ru.jux.launcher.update.Updater
 
-enum class Screen { HOME, CATALOG, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
+enum class Screen { HOME, CATALOG, FRIENDS, ACTIVITY, NOTICES, SETTINGS, ACCOUNTS }
 
 // Неизменяемые: строка списка с тем же содержимым пропускает перерисовку при пересборке групп
 @Immutable
@@ -148,6 +154,9 @@ sealed interface Modal {
     data class Share(val entry: VersionEntry) : Modal
     data class Graphics(val entry: VersionEntry) : Modal
     data class ImportPack(val link: LaunchLink.SharedPack, val plan: PackImport? = null, val error: String? = null) : Modal
+    data class FriendLink(val start: LinkStart, val failure: String? = null) : Modal
+    data class FriendVersions(val friend: Friend) : Modal
+    data class FriendPack(val friend: Friend, val link: LaunchLink.SharedPack, val plan: PackImport? = null, val error: String? = null) : Modal
 }
 
 /** Запущенный клиент игры: их может быть несколько сразу, в том числе одной сборки под разными аккаунтами. */
@@ -157,6 +166,8 @@ class RunningGame(
     val logFile: Path,
     val startedAt: Long,
     presence: Presence.Playing,
+    /** Ник аккаунта Minecraft, под которым запущен клиент. */
+    val nick: String = "",
 ) {
     /** Окно игры уже на экране; до этого игра только грузится. */
     var opened by mutableStateOf(false)
@@ -165,6 +176,11 @@ class RunningGame(
     // Статус Discord этого клиента: когда другой клиент закроется, показываем его
     @Volatile
     var presence: Presence.Playing = presence
+        internal set
+
+    /** Ссылка на эту сборку для друзей: считается один раз за запуск и только у сборки с модами. */
+    @Volatile
+    var packLink: String? = null
         internal set
 }
 
@@ -240,11 +256,11 @@ class LauncherState(
         private set
 
     var busy by mutableStateOf(false)
-        private set
+        internal set
     var stage by mutableStateOf("")
         private set
     var progress by mutableStateOf<DownloadProgress?>(null)
-        private set
+        internal set
 
     var busyEntry by mutableStateOf<VersionEntry?>(null)
         private set
@@ -252,6 +268,13 @@ class LauncherState(
     var signingIn by mutableStateOf(false)
         private set
     var signInStage by mutableStateOf("")
+        private set
+
+    /** Друг, к которому сейчас заходим: его кнопка «Присоединиться» показывает загрузку. */
+    var joiningFriend by mutableStateOf<String?>(null)
+        internal set
+
+    var friendLinkStarting by mutableStateOf(false)
         private set
 
     var toast by mutableStateOf<Notice?>(null)
@@ -302,11 +325,14 @@ class LauncherState(
     private var jobToken: Any? = null
     private var pendingPlay: Boolean = false
     private var carryAnswer: CompletableDeferred<Pair<CarrySource, CarryPlan>?>? = null
+    private var linkJob: Job? = null
 
     val accounts = AccountManager.accounts
     val selectedAccount = AccountManager.selected
     val servers = Servers.all
     val updates = Updater.state
+    val friendsAccount = Friends.account
+    val friendsSnapshot = Friends.snapshot
 
     init {
         preloaded?.let {
@@ -566,6 +592,7 @@ class LauncherState(
     private fun finishJob() {
         busy = false
         busyEntry = null
+        joiningFriend = null
         stage = ""
         progress = null
         job = null
@@ -584,6 +611,7 @@ class LauncherState(
         val left = games.lastOrNull()
         if (left != null) DiscordPresence.show(left.presence) else DiscordPresence.show(Presence.Launcher)
         OnlineCounter.setPlaying(left != null)
+        updateFriendPresence()
         val opened = launched.opened
         // Нулевой код — обычный выход, если только окно игры так и не появилось
         if (exitCode == 0 && opened) return left == null
@@ -919,8 +947,10 @@ class LauncherState(
         DiscordPresence.show(playing)
         OnlineCounter.setPlaying(true)
         server?.let { ServerJoins.report(it.address) }
-        val game = RunningGame(entry, result.process, result.logFile, startedAt, playing)
+        val game = RunningGame(entry, result.process, result.logFile, startedAt, playing, account.name)
         games = games + game
+        updateFriendPresence()
+        sharePackWithFriends(game)
         watchGame(game, result.gameDir)
         watchGameWindow(game)
         onGameStarted(result.process)
@@ -1197,9 +1227,11 @@ class LauncherState(
                     next = next.copy(serverIcon = next.server?.let { serverIcon(it) })
                 }
                 if (next != shown && process.isAlive) {
+                    val moved = next.server != shown.server
                     shown = next
                     game.presence = next
                     DiscordPresence.show(next)
+                    if (moved) updateFriendPresence()
                 }
             }
         }
@@ -1293,6 +1325,184 @@ class LauncherState(
         modal = null
         selectEntry(entry)
         play(ServerEntry(link.title, link.address))
+    }
+
+    /** «Войти через juxmc.ru»: сайт выдаёт код, браузер открывает страницу подтверждения, лаунчер ждёт ответа. */
+    fun signInFriends() {
+        if (linkJob?.isActive == true) return
+        linkJob = scope.launch {
+            friendLinkStarting = true
+            val start = try {
+                Friends.startLink()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.warn("friends link start failed: ${e.message}")
+                fail(e.message, title = tr("Вход через juxmc.ru", "Sign in with juxmc.ru"))
+                return@launch
+            } finally {
+                friendLinkStarting = false
+            }
+            val shown = Modal.FriendLink(start)
+            modal = shown
+            Shell.browse(start.url)
+            val deadline = System.currentTimeMillis() + start.expiresIn * 1000L
+            while (true) {
+                delay(start.interval.coerceIn(2, 10) * 1000L)
+                val answer = try {
+                    Friends.poll(start)
+                } catch (e: FriendsException) {
+                    when (e.code) {
+                        "expired" -> LinkPoll.Expired
+                        "denied" -> LinkPoll.Denied
+                        else -> LinkPoll.Pending
+                    }
+                }
+                val failure = when (answer) {
+                    LinkPoll.Pending -> if (System.currentTimeMillis() < deadline) continue else FriendsException.textOf("expired")
+                    LinkPoll.Denied -> FriendsException.textOf("denied")
+                    LinkPoll.Expired -> FriendsException.textOf("expired")
+                    is LinkPoll.Linked -> {
+                        Friends.adopt(answer)
+                        if (modal is Modal.FriendLink) modal = null
+                        return@launch
+                    }
+                }
+                if (modal is Modal.FriendLink) modal = shown.copy(failure = failure)
+                return@launch
+            }
+        }
+    }
+
+    fun cancelFriendLink() {
+        linkJob?.cancel()
+        linkJob = null
+        if (modal is Modal.FriendLink) modal = null
+    }
+
+    fun signOutFriends() {
+        scope.launch { Friends.unlink() }
+    }
+
+    /** Действие с другом или заявкой. Ошибку получает [onError], без него она идёт в уведомления. */
+    fun friendAction(action: FriendAction, nick: String, onError: ((String) -> Unit)? = null, onDone: () -> Unit = {}) {
+        scope.launch {
+            try {
+                Friends.act(action, nick)
+                onDone()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val text = e.message ?: FriendsException.textOf("")
+                if (onError != null) onError(text) else fail(text, title = tr("Друзья", "Friends"))
+            }
+        }
+    }
+
+    fun changeFriendSettings(showWhere: Boolean? = null, showOnline: Boolean? = null, acceptRequests: Boolean? = null) {
+        scope.launch {
+            try {
+                Friends.changeSettings(showWhere, showOnline, acceptRequests)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail(e.message, title = tr("Настройки друзей не сохранились", "Friend settings were not saved"))
+            }
+        }
+    }
+
+    /** «Присоединиться»: своя сборка друга — она же или окно «Скачать и играть», иначе запомненная версия или версия друга. */
+    fun joinFriend(friend: Friend) {
+        if (busy || !friend.joinable) return
+        val link = friend.sharedPack
+        if (link == null) {
+            joinFriendWith(friend, friendJoinEntry(friend), remember = false)
+            return
+        }
+        val owned = ownedPackOf(link)
+        if (owned != null) joinFriendWith(friend, entryFor(owned), remember = false) else showFriendPack(friend, link)
+    }
+
+    /** Заход с выбранной версией; выбор из меню или окна запоминается для этого сервера. */
+    fun joinFriendWith(friend: Friend, entry: VersionEntry, remember: Boolean = true) {
+        val address = friend.address ?: return
+        if (busy) return
+        if (remember) Settings.update { it.copy(serverVersions = it.serverVersions + (address to entry.key)) }
+        modal = null
+        selectEntry(entry)
+        joiningFriend = friend.nick
+        play(ServerEntry(friend.serverTitle ?: address, address))
+        if (!busy) joiningFriend = null
+    }
+
+    fun showFriendVersions(friend: Friend) {
+        modal = Modal.FriendVersions(friend)
+    }
+
+    fun showFriendPack(friend: Friend, link: LaunchLink.SharedPack) {
+        val shown = Modal.FriendPack(friend, link)
+        modal = shown
+        scope.launch {
+            val resolved = try {
+                shown.copy(plan = PackLinks.resolve(link))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.warn("friend's pack unresolved: ${e.message}")
+                shown.copy(error = tr("Modrinth не ответил — проверь интернет", "Modrinth didn't respond — check your connection"))
+            }
+            if (modal === shown) modal = resolved
+        }
+    }
+
+    /** «Скачать и играть»: сборка друга ставится по его ссылке, и игра сразу заходит к нему на сервер. */
+    fun joinFriendPack(friend: Friend, link: LaunchLink.SharedPack, plan: PackImport) {
+        val address = friend.address ?: return
+        if (busy) return
+        val account = selectedAccount.value ?: run {
+            fail(tr("Добавь аккаунт", "Add an account"))
+            screen = Screen.ACCOUNTS
+            return
+        }
+        modal = null
+        joiningFriend = friend.nick
+        startJob(null, "pack import") {
+            stageChanged(tr("Создаю сборку ${link.name}", "Creating the pack ${link.name}"))
+            val pack = PackLinks.install(link, plan, onStage = ::stageChanged, onProgress = { progress = it })
+            reloadPacks()
+            val entry = entryFor(pack)
+            selectEntry(entry)
+            expandedGroups = expandedGroups + PACKS_GROUP
+            busyEntry = entry
+            launch(entry, account, ServerEntry(friend.serverTitle ?: address, address), skipModCheck = false)
+        }
+    }
+
+    private fun updateFriendPresence() = Friends.setPresence(friendPresenceOf(games))
+
+    private fun sharePackWithFriends(game: RunningGame) {
+        if (!game.entry.loader.hasMods || Friends.account.value == null) return
+        scope.launch {
+            try {
+                game.packLink = packShare(game.entry).uri
+                if (game in games) updateFriendPresence()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.info("pack link for friends not built: ${e.message}")
+            }
+        }
+    }
+
+    /** Иконки и версии серверов, где играют друзья: тот же пинг, что у серверов на главной. */
+    fun pingFriendServers() {
+        val now = System.currentTimeMillis()
+        Friends.snapshot.value?.friends.orEmpty()
+            .filter { it.joinable }
+            .mapNotNull { it.address }
+            .distinct()
+            .filter { now - (lastPingAt[it] ?: 0L) >= SERVER_PING_MILLIS }
+            .forEach { pingServer(ServerEntry(it, it)) }
     }
 
     fun installFromLink(entry: VersionEntry, project: Modrinth.Project, kind: ContentKind) {

@@ -3,7 +3,9 @@ package ru.jux.launcher.ui.components
 import ru.jux.launcher.core.Language
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.tr
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
 
 private val MONTHS_SHORT_RU = listOf("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
@@ -69,3 +71,19 @@ fun formatCount(count: Long): String = when {
 // Подпись месяца над столбцом тепловой карты: «май», а не «мая»
 fun formatMonthLabel(month: Int): String =
     if (english) MONTHS_SHORT_EN[month - 1] else if (month == 5) "май" else MONTHS_SHORT_RU[month - 1]
+
+// Когда друг был в сети: «2 ч назад» в тот же вечер, «вчера в 22:40» назавтра
+fun formatSeen(seenMillis: Long, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {
+    val minutes = ((now - seenMillis) / 60_000).coerceAtLeast(0)
+    val seen = Instant.ofEpochMilli(seenMillis).atZone(zone)
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    val clock = String.format(Locale.ROOT, "%02d:%02d", seen.hour, seen.minute)
+    return when {
+        minutes < 1 -> tr("в сети только что", "seen just now")
+        minutes < 60 -> tr("в сети $minutes мин назад", "seen $minutes min ago")
+        minutes < 6 * 60 -> tr("в сети ${minutes / 60} ч назад", "seen ${minutes / 60} h ago")
+        seen.toLocalDate() == today -> tr("в сети сегодня в $clock", "seen today at $clock")
+        seen.toLocalDate() == today.minusDays(1) -> tr("в сети вчера в $clock", "seen yesterday at $clock")
+        else -> tr("в сети ${formatDayMonth(seen.toLocalDate(), long = true, today = today)}", "seen ${formatDayMonth(seen.toLocalDate(), long = true, today = today)}")
+    }
+}

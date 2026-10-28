@@ -266,6 +266,18 @@ fun main(args: Array<String>) {
     withPack.openCatalog(tab = CatalogTab.PACKS)
     render("catalog-packs-installed", 1040, 660) { JuxTheme { App(withPack, onGameStarted = {}) } }
     renderNewFeatures(preloaded) { name, width, height, content -> render(name, width, height, content = content) }
+
+    val survival = Modpack(
+        id = "survival",
+        title = "Выживание с друзьями",
+        version = "",
+        gameVersion = "1.21.11",
+        loader = LoaderKind.FABRIC,
+        projectId = "",
+        versionId = "",
+    )
+    val withFriends = LauncherState(CoroutineScope(Dispatchers.Unconfined), preloaded.copy(packs = listOf(survival)))
+    renderFriends(withFriends, withFriends.packs) { name, width, height, realMillis, content -> render(name, width, height, realMillis, content) }
     exitProcess(0)
 }
 

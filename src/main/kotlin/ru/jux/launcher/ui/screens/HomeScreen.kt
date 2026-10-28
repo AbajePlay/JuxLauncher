@@ -814,20 +814,20 @@ private fun StatusLine(ping: PingState?) {
 }
 
 @Composable
-private fun ServerIcon(favicon: ByteArray?) {
+internal fun ServerIcon(favicon: ByteArray?, size: Dp = 48.dp, corner: Dp = JuxDimens.CornerMedium) {
     val bitmap = remember(favicon) {
         favicon?.let { bytes ->
             runCatching { org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
         }
     }
     Box(
-        Modifier.size(48.dp).clip(RoundedCornerShape(JuxDimens.CornerMedium)).background(JuxColors.Surface),
+        Modifier.size(size).clip(RoundedCornerShape(corner)).background(JuxColors.Surface),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {
             Image(bitmap, null, modifier = Modifier.fillMaxSize(), filterQuality = FilterQuality.None)
         } else {
-            Icon(JuxIcons.Server, null, tint = JuxColors.TextMuted, modifier = Modifier.size(18.dp))
+            Icon(JuxIcons.Server, null, tint = JuxColors.TextMuted, modifier = Modifier.size(minOf(18.dp, size * 0.7f)))
         }
     }
 }

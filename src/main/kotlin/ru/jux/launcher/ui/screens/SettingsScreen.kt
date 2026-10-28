@@ -40,6 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import ru.jux.launcher.core.Backdrop
 import ru.jux.launcher.core.DEFAULT_ACCENT
 import ru.jux.launcher.core.GameWindowMode
@@ -48,11 +51,13 @@ import ru.jux.launcher.core.LauncherSettings
 import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.SettingsDefaults
+import ru.jux.launcher.core.Shell
 import ru.jux.launcher.core.ThemeMode
 import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.logs.LogSource
 import ru.jux.launcher.net.Downloader
+import ru.jux.launcher.online.JuxSite
 import ru.jux.launcher.ui.LauncherState
 import ru.jux.launcher.ui.components.ChoiceChip
 import ru.jux.launcher.ui.components.JuxButton
@@ -85,6 +90,7 @@ fun SettingsScreen(state: LauncherState) {
         AppearancePanel(state, settings)
         MemoryPanel(settings)
         GameWindowPanel(settings)
+        FriendsPanel(state)
 
         Panel(Modifier.fillMaxWidth()) {
             Column {
@@ -349,3 +355,58 @@ private fun DownloadsPanel(state: LauncherState, settings: LauncherSettings) {
         }
     }
 }
+
+@Composable
+private fun FriendsPanel(state: LauncherState) {
+    val account by state.friendsAccount.collectAsState()
+    val snapshot by state.friendsSnapshot.collectAsState()
+    Panel(Modifier.fillMaxWidth()) {
+        Column {
+            SectionTitle(tr("Друзья", "Friends"))
+            val linked = account
+            if (linked == null) {
+                LabeledRow(tr("Аккаунт juxmc.ru", "juxmc.ru account"), tr("Друзья, их статус и заход к ним одной кнопкой", "Friends, their status and joining them with one button")) {
+                    JuxButton(tr("Войти через juxmc.ru", "Sign in with juxmc.ru"), onClick = state::signInFriends, icon = JuxIcons.OpenInNew, enabled = !state.friendLinkStarting)
+                }
+                return@Column
+            }
+            val nick = snapshot?.me?.nick ?: linked.nick
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(JuxDimens.CornerCard)).background(JuxColors.SurfaceHigh).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FriendHead(snapshot?.me?.head, nick, 40.dp)
+                Column(Modifier.weight(1f)) {
+                    Text(nick, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = JuxColors.Text)
+                    val since = linked.linkedAt.takeIf { it > 0 }?.let { LINKED_DATE.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())) }
+                    Text(
+                        listOfNotNull(tr("аккаунт juxmc.ru", "juxmc.ru account"), since?.let { tr("привязан $it", "linked $it") }).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JuxColors.TextMuted,
+                    )
+                }
+                SmallButton(tr("Профиль", "Profile"), icon = JuxIcons.OpenInNew) { Shell.browse(snapshot?.me?.profile ?: profileUrl(nick)) }
+                SmallButton(tr("Выйти", "Sign out"), onClick = state::signOutFriends)
+            }
+            Spacer(Modifier.height(8.dp))
+            val friendSettings = snapshot?.settings
+            val ready = friendSettings != null
+            LabeledRow(tr("Показывать друзьям, где я играю", "Show friends where I play"), tr("Сервер, версия и ник в игре. Выключено — друзья видят только «в сети»", "Server, version and in-game name. Off: friends only see “online”")) {
+                JuxSwitch(friendSettings?.showWhere ?: true, enabled = ready) { state.changeFriendSettings(showWhere = it) }
+            }
+            LabeledRow(tr("Показывать, что я в сети", "Show that I'm online"), tr("Выключено — для друзей ты всегда не в сети", "Off: you always look offline to friends")) {
+                JuxSwitch(friendSettings?.showOnline ?: true, enabled = ready) { state.changeFriendSettings(showOnline = it) }
+            }
+            LabeledRow(tr("Принимать заявки в друзья", "Accept friend requests"), tr("Выключено — добавить тебя нельзя, но ты можешь добавлять сам", "Off: nobody can add you, but you can still add others")) {
+                JuxSwitch(friendSettings?.acceptRequests ?: true, enabled = ready) { state.changeFriendSettings(acceptRequests = it) }
+            }
+            val blocked = snapshot?.blocked ?: 0
+            LabeledRow(if (blocked > 0) tr("Заблокированные · $blocked", "Blocked players · $blocked") else tr("Заблокированные", "Blocked players"), tr("Не видят тебя и не могут отправить заявку", "They can't see you or send you a request")) {
+                SmallButton(tr("На сайте", "On the site"), icon = JuxIcons.OpenInNew, onPanel = true) { Shell.browse(JuxSite.page("account/settings/")) }
+            }
+        }
+    }
+}
+
+private val LINKED_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy")

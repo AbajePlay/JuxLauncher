@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import ru.jux.launcher.auth.AccountManager
+import ru.jux.launcher.friends.Friends
 import kotlinx.serialization.encodeToString
 import ru.jux.launcher.meta.LoaderKind
 import ru.jux.launcher.meta.LoaderRepository
@@ -49,6 +50,7 @@ object Preloader {
 
         // Остальное друг от друга не зависит: читается одновременно, а ждём в прежнем порядке, чтобы шаги сплэша шли как раньше
         val accounts = async(Dispatchers.IO) { runCatching { AccountManager.load() } }
+        val friends = async(Dispatchers.IO) { runCatching { Friends.load() } }
         val notices = async(Dispatchers.IO) { runCatching { Notices.load() } }
         val verified = async(Dispatchers.IO) { runCatching { VerifyCache.load() } }
         val cachedManifestLoad = async(Dispatchers.IO) { VersionManifestRepository.loadCached() }
@@ -58,6 +60,7 @@ object Preloader {
 
         onStep(0.25f, opening())
         accounts.await()
+        friends.await()
         notices.await()
         onStep(0.40f, opening())
         verified.await()

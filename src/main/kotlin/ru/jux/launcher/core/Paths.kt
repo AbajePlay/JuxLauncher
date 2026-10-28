@@ -27,6 +27,7 @@ object Paths {
 
     val settingsFile: Path = root.resolve("launcher.json")
     val accountsFile: Path = root.resolve("accounts.json")
+    val friendsFile: Path = root.resolve("friends.json")
     val noticesFile: Path = root.resolve("notifications.json")
     val backdropImage: Path = root.resolve("backdrop.img")
     val verifyCacheFile: Path = cache.resolve("verify.index")

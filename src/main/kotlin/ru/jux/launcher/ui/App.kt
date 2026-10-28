@@ -82,6 +82,7 @@ import ru.jux.launcher.ui.dialogs.ModalHost
 import ru.jux.launcher.ui.screens.AccountsScreen
 import ru.jux.launcher.ui.screens.CatalogScreen
 import ru.jux.launcher.ui.screens.ActivityScreen
+import ru.jux.launcher.ui.screens.FriendsScreen
 import ru.jux.launcher.ui.screens.HomeScreen
 import ru.jux.launcher.ui.screens.NoticesScreen
 import ru.jux.launcher.ui.screens.SettingsScreen
@@ -136,6 +137,7 @@ private fun ScreenHost(state: LauncherState) {
         when (screen) {
             Screen.HOME -> HomeScreen(state)
             Screen.CATALOG -> CatalogScreen(state)
+            Screen.FRIENDS -> FriendsScreen(state)
             Screen.ACTIVITY -> ActivityScreen(state)
             Screen.NOTICES -> NoticesScreen(state)
             Screen.SETTINGS -> SettingsScreen(state)
@@ -166,6 +168,7 @@ private fun NavRail(state: LauncherState) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NavItem(tr("Играть", "Play"), Icons.Default.Home, state.screen == Screen.HOME) { state.screen = Screen.HOME }
             NavItem(tr("Каталог", "Catalog"), JuxIcons.Extension, state.screen == Screen.CATALOG) { state.openCatalog() }
+            FriendsNavItem(state)
             NavItem(tr("Активность", "Activity"), JuxIcons.Activity, state.screen == Screen.ACTIVITY) { state.screen = Screen.ACTIVITY }
             NavItem(
                 tr("Уведомления", "Notifications"),
@@ -182,6 +185,15 @@ private fun NavRail(state: LauncherState) {
         OnlineLine()
         AccountSwitcher(state)
     }
+}
+
+// Число на значке — входящие заявки; всплывающих уведомлений о них нет
+@Composable
+private fun FriendsNavItem(state: LauncherState) {
+    val account by state.friendsAccount.collectAsState()
+    val snapshot by state.friendsSnapshot.collectAsState()
+    val incoming = if (account != null) snapshot?.incoming?.size ?: 0 else 0
+    NavItem(tr("Друзья", "Friends"), JuxIcons.Friends, state.screen == Screen.FRIENDS, badge = incoming) { state.screen = Screen.FRIENDS }
 }
 
 @Composable

@@ -35,6 +35,8 @@ data class LauncherSettings(
     val backdropColor: Int = DEFAULT_BACKDROP_COLOR,
     val backdropDim: Float = 0.6f,
     val gameWindow: GameWindowMode = GameWindowMode.HIDE,
+    /** Чем заходить на сервер друга, если игрок выбрал сам: адрес → ключ версии или сборки. */
+    val serverVersions: Map<String, String> = emptyMap(),
 )
 
 /** Что делать с окном лаунчера, когда окно игры открылось. */

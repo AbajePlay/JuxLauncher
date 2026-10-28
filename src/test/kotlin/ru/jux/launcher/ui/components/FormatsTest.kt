@@ -46,4 +46,17 @@ class FormatsTest {
             java.util.Locale.setDefault(saved)
         }
     }
+
+    @Test
+    fun `a friend's last time online reads like a person would say it`() {
+        val zone = java.time.ZoneId.of("Europe/Moscow")
+        val now = java.time.ZonedDateTime.of(2026, 10, 28, 14, 30, 0, 0, zone).toInstant().toEpochMilli()
+        val minute = 60_000L
+        assertEquals("в сети только что", formatSeen(now - 20_000, now, zone))
+        assertEquals("в сети 5 мин назад", formatSeen(now - 5 * minute, now, zone))
+        assertEquals("в сети 2 ч назад", formatSeen(now - 120 * minute, now, zone))
+        assertEquals("в сети сегодня в 07:10", formatSeen(now - (7 * 60 + 20) * minute, now, zone))
+        assertEquals("в сети вчера в 22:40", formatSeen(now - (15 * 60 + 50) * minute, now, zone))
+        assertEquals("в сети 20 октября", formatSeen(now - 8 * 24 * 60 * minute, now, zone))
+    }
 }
