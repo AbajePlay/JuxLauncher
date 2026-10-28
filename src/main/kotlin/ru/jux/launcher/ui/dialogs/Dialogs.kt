@@ -82,6 +82,9 @@ fun ModalHost(state: LauncherState) {
         is Modal.Share -> ShareDialog(state, modal.entry)
         is Modal.ImportPack -> ImportPackDialog(state, modal)
         is Modal.Graphics -> GraphicsDialog(state, modal.entry)
+        is Modal.FriendLink -> FriendLinkDialog(state, modal)
+        is Modal.FriendVersions -> FriendVersionsDialog(state, modal.friend)
+        is Modal.FriendPack -> FriendPackDialog(state, modal)
     }
 }
 

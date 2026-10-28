@@ -434,7 +434,7 @@ private fun EntryChoices(
 }
 
 @Composable
-private fun EntryChoice(state: LauncherState, entry: VersionEntry, selected: Boolean, onClick: () -> Unit) {
+internal fun EntryChoice(state: LauncherState, entry: VersionEntry, selected: Boolean, note: String? = null, onClick: () -> Unit) {
     val installed = entry.pack != null || state.isEntryInstalled(entry)
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
@@ -475,7 +475,7 @@ private fun EntryChoice(state: LauncherState, entry: VersionEntry, selected: Boo
             Tag(if (entry.pack != null) "${entry.id} ${entry.loader.label}" else entry.loader.label, loaderColor(entry.loader))
         }
         Text(
-            when {
+            note ?: when {
                 entry.pack != null -> tr("сборка", "pack")
                 installed -> tr("установлена", "installed")
                 else -> tr("новая", "new")
@@ -487,11 +487,11 @@ private fun EntryChoice(state: LauncherState, entry: VersionEntry, selected: Boo
 }
 
 @Composable
-private fun Hint(text: String, color: Color = JuxColors.TextMuted) {
+internal fun Hint(text: String, color: Color = JuxColors.TextMuted) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = color)
 }
 
-private fun busyText(state: LauncherState): String =
+internal fun busyText(state: LauncherState): String =
     state.busyEntry?.label?.let { tr("Дождись загрузки $it", "Wait for $it to download") }
         ?: tr("Дождись загрузки", "Wait for the download")
 

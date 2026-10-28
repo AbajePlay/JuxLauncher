@@ -36,6 +36,7 @@ import ru.jux.launcher.core.VerifyCache
 import ru.jux.launcher.core.tr
 import ru.jux.launcher.discord.DiscordPresence
 import ru.jux.launcher.discord.Presence
+import ru.jux.launcher.friends.Friends
 import ru.jux.launcher.link.LaunchLink
 import ru.jux.launcher.net.Http
 import ru.jux.launcher.online.OnlineCounter
@@ -120,6 +121,7 @@ fun main(args: Array<String>) {
             LaunchedEffect(Unit) { withContext(Dispatchers.IO) { UrlProtocol.register() } }
             LaunchedEffect(Unit) { state.refreshActivity() }
             LaunchedEffect(Unit) { OnlineCounter.start() }
+            LaunchedEffect(Unit) { Friends.start() }
             LaunchedEffect(Unit) {
                 DiscordPresence.show(Presence.Launcher)
                 DiscordPresence.start()

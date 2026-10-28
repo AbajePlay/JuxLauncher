@@ -69,6 +69,20 @@ object Http {
         timeoutSeconds?.let { metadataClient.newBuilder().callTimeout(it, TimeUnit.SECONDS).build() } ?: metadataClient,
     )
 
+    /** Ответ вместе с кодом: сайт juxmc.ru объясняет отказ в теле, `{"error": "..."}`, а не только статусом. */
+    fun postJsonReply(url: String, json: String, bearer: String? = null): Reply {
+        val request = Request.Builder().url(url).post(json.toRequestBody(JSON))
+            .apply { if (bearer != null) header("Authorization", "Bearer $bearer") }
+            .build()
+        metadataClient.newCall(request).execute().use { response ->
+            return Reply(response.code, response.body?.string().orEmpty())
+        }
+    }
+
+    class Reply(val code: Int, val body: String) {
+        val isSuccessful: Boolean get() = code in 200..299
+    }
+
     fun postForm(url: String, fields: Map<String, String>): String {
         val body = FormBody.Builder().apply { fields.forEach { (name, value) -> add(name, value) } }.build()
         return execute(Request.Builder().url(url).post(body).build(), uploadClient)

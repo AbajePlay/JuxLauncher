@@ -61,6 +61,18 @@ object SkinHeads {
         skin?.let(::face)?.toComposeImageBitmap()?.also { cache[key] = it }
     }
 
+    /** Лицо одного из скинов по умолчанию («wide/kai»): берётся из клиента игры, который уже скачан. */
+    fun cachedBuiltIn(skin: String): ImageBitmap? = cache["builtin:$skin"]
+
+    suspend fun builtIn(skin: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        cache["builtin:$skin"]?.let { return@withContext it }
+        val entry = "assets/minecraft/textures/entity/player/$skin.png"
+        val image = clientJars().firstNotNullOfOrNull { jar ->
+            runCatching { ZipFile(jar.toFile()).use { zip -> zip.getEntry(entry)?.let { e -> zip.getInputStream(e).use { ImageIO.read(it) } } } }.getOrNull()
+        }
+        image?.let(::face)?.toComposeImageBitmap()?.also { cache["builtin:$skin"] = it }
+    }
+
     private fun key(account: Account): String = account.skinUrl ?: "default:${account.uuid}"
 
     private fun downloadSkin(url: String): BufferedImage? {
@@ -94,7 +106,10 @@ object SkinHeads {
         return null
     }
 
-    private fun clientJars() = runCatching {
+    // Превью подкладывает сюда клиент со скинами: в его песочнице игры нет
+    internal var extraJars: List<java.nio.file.Path> = emptyList()
+
+    private fun clientJars() = extraJars + runCatching {
         Paths.versions.listDirectoryEntries()
             .filter { it.isDirectory() }
             .map { it.resolve("${it.name}.jar") }
