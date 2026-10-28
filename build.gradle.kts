@@ -2,6 +2,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -422,7 +423,7 @@ fun runTool(vararg command: String) {
     val log = File.createTempFile("jux-tool", ".log")
     try {
         val process = ProcessBuilder(*command).redirectErrorStream(true).redirectOutput(log).start()
-        if (!process.waitFor(10, java.util.concurrent.TimeUnit.MINUTES)) {
+        if (!process.waitFor(10, TimeUnit.MINUTES)) {
             process.destroyForcibly()
             throw GradleException("${command.first()} did not finish in 10 minutes:\n${log.readText()}")
         }
