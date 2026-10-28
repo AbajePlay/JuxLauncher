@@ -367,10 +367,21 @@ val packageMacDmg = tasks.register("packageMacDmg") {
         runTool("ditto", app.absolutePath, staging.resolve("JuxLauncher.app").absolutePath)
         runTool("ln", "-s", "/Applications", staging.resolve("Applications").absolutePath)
         val out = dmg.get().asFile.also { it.parentFile.mkdirs(); it.delete() }
-        runTool(
-            "hdiutil", "create", "-volname", "JuxLauncher", "-srcfolder", staging.absolutePath,
-            "-fs", "HFS+", "-format", "UDZO", "-imagekey", "zlib-level=9", "-ov", out.absolutePath,
-        )
+        // hdiutil изредка отвечает «Resource busy», пока система сканирует свежие файлы: тогда пробуем ещё раз
+        var attempt = 1
+        while (true) {
+            try {
+                runTool(
+                    "hdiutil", "create", "-volname", "JuxLauncher", "-srcfolder", staging.absolutePath,
+                    "-fs", "HFS+", "-format", "UDZO", "-imagekey", "zlib-level=9", "-ov", out.absolutePath,
+                )
+                break
+            } catch (e: GradleException) {
+                if (attempt++ >= 3) throw e
+                logger.warn("hdiutil failed, retrying: ${e.message}")
+                Thread.sleep(5_000)
+            }
+        }
         forceDelete(staging)
         logger.lifecycle("macOS: $out")
     }
@@ -404,11 +415,23 @@ tasks.register("packageReleaseAssets") {
     }
 }
 
+// Вывод — в файл, а не в трубу: hdiutil оставляет помощника, который держит трубу открытой, и чтение до конца
+// вывода не кончилось бы никогда. Ждём сам процесс, и не дольше 10 минут
 fun runTool(vararg command: String) {
-    val process = ProcessBuilder(*command).redirectErrorStream(true).start()
-    val output = process.inputStream.bufferedReader().readText()
-    if (process.waitFor() != 0) throw GradleException("${command.first()} failed:\n$output")
-    if (output.isNotBlank()) logger.info(output.trim())
+    logger.lifecycle("> ${command.joinToString(" ")}")
+    val log = File.createTempFile("jux-tool", ".log")
+    try {
+        val process = ProcessBuilder(*command).redirectErrorStream(true).redirectOutput(log).start()
+        if (!process.waitFor(10, java.util.concurrent.TimeUnit.MINUTES)) {
+            process.destroyForcibly()
+            throw GradleException("${command.first()} did not finish in 10 minutes:\n${log.readText()}")
+        }
+        val output = log.readText().trim()
+        if (process.exitValue() != 0) throw GradleException("${command.first()} failed:\n$output")
+        if (output.isNotEmpty()) logger.info(output)
+    } finally {
+        log.delete()
+    }
 }
 
 tasks.register("scanWithDefender") {

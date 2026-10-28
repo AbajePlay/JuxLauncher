@@ -59,6 +59,7 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a ./gradlew test --console=plain; else ./gradlew test --console=plain; fi
 
       - name: Installers
+        timeout-minutes: 25
         run: ./gradlew packageReleaseAssets --console=plain
 
       - uses: actions/upload-artifact@v4
