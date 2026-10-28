@@ -59,6 +59,11 @@ jobs:
           chmod +x gradlew
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a ./gradlew test --console=plain; else ./gradlew test --console=plain; fi
 
+      - name: Quiet macOS indexing
+        if: runner.os == 'macOS'
+        # Spotlight лезет в свежие файлы и образы, и hdiutil на машинах сборки от этого виснет
+        run: sudo mdutil -a -i off || true
+
       - name: Installers
         timeout-minutes: 25
         run: ./gradlew packageReleaseAssets --console=plain

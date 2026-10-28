@@ -362,28 +362,25 @@ val packageMacDmg = tasks.register("packageMacDmg") {
         runTool("codesign", "--force", "--deep", "--sign", "-", app.absolutePath)
         runTool("codesign", "--verify", "--deep", "--strict", "--verbose=2", app.absolutePath)
 
-        val staging = temporaryDir.resolve("JuxLauncher")
-        forceDelete(staging)
-        staging.mkdirs()
-        runTool("ditto", app.absolutePath, staging.resolve("JuxLauncher.app").absolutePath)
-        runTool("ln", "-s", "/Applications", staging.resolve("Applications").absolutePath)
-        val out = dmg.get().asFile.also { it.parentFile.mkdirs(); it.delete() }
-        // hdiutil изредка отвечает «Resource busy», пока система сканирует свежие файлы: тогда пробуем ещё раз
-        var attempt = 1
-        while (true) {
-            try {
-                runTool(
-                    "hdiutil", "create", "-volname", "JuxLauncher", "-srcfolder", staging.absolutePath,
-                    "-fs", "HFS+", "-format", "UDZO", "-imagekey", "zlib-level=9", "-ov", out.absolutePath,
-                )
-                break
-            } catch (e: GradleException) {
-                if (attempt++ >= 3) throw e
-                logger.warn("hdiutil failed, retrying: ${e.message}")
-                Thread.sleep(5_000)
-            }
+        // Без -srcfolder: так hdiutil на машинах сборки висел часами. Пустой образ с запасом, в него — приложение
+        // и ссылка на «Программы», потом сжатие
+        val raw = temporaryDir.resolve("JuxLauncher-raw.dmg").also { it.delete() }
+        val mount = temporaryDir.resolve("mount").also { forceDelete(it); it.mkdirs() }
+        val megabytes = app.walk().filter { it.isFile }.sumOf { it.length() } / (1024 * 1024) + 64
+        runTool("hdiutil", "create", "-size", "${megabytes}m", "-fs", "HFS+", "-volname", "JuxLauncher", "-layout", "SPUD", "-ov", raw.absolutePath)
+        runTool("hdiutil", "attach", raw.absolutePath, "-nobrowse", "-noverify", "-noautoopen", "-mountpoint", mount.absolutePath)
+        try {
+            runTool("ditto", app.absolutePath, mount.resolve("JuxLauncher.app").absolutePath)
+            runTool("ln", "-s", "/Applications", mount.resolve("Applications").absolutePath)
+        } finally {
+            // Отцепить сразу не всегда даёт индексатор, который заглянул в свежий том
+            runCatching { runTool("hdiutil", "detach", mount.absolutePath) }
+                .recover { Thread.sleep(5_000); runTool("hdiutil", "detach", "-force", mount.absolutePath) }
+                .getOrThrow()
         }
-        forceDelete(staging)
+        val out = dmg.get().asFile.also { it.parentFile.mkdirs(); it.delete() }
+        runTool("hdiutil", "convert", raw.absolutePath, "-format", "UDZO", "-imagekey", "zlib-level=9", "-o", out.absolutePath)
+        raw.delete()
         logger.lifecycle("macOS: $out")
     }
 }
@@ -422,7 +419,11 @@ fun runTool(vararg command: String) {
     logger.lifecycle("> ${command.joinToString(" ")}")
     val log = File.createTempFile("jux-tool", ".log")
     try {
-        val process = ProcessBuilder(*command).redirectErrorStream(true).redirectOutput(log).start()
+        val process = ProcessBuilder(*command)
+            .redirectInput(ProcessBuilder.Redirect.from(File(if (isWindows) "NUL" else "/dev/null")))
+            .redirectErrorStream(true)
+            .redirectOutput(log)
+            .start()
         if (!process.waitFor(10, TimeUnit.MINUTES)) {
             process.destroyForcibly()
             throw GradleException("${command.first()} did not finish in 10 minutes:\n${log.readText()}")
