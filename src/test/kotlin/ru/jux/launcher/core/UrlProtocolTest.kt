@@ -1,6 +1,7 @@
 package ru.jux.launcher.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
 
@@ -25,5 +26,17 @@ class UrlProtocolTest {
             "\"C:\\Users\\Игрок\\AppData\\Local\\JuxLauncher\\JuxLauncher.exe\" \"%1\"",
             entries.getValue("Software\\Classes\\juxlauncher\\shell\\open\\command").getValue(""),
         )
+    }
+
+    @Test
+    fun `linux links open the launcher through a hidden desktop entry`() {
+        val entry = UrlProtocol.desktopEntry(Path.of("/opt/juxlauncher/bin/JuxLauncher"))
+        val lines = entry.lines()
+
+        assertEquals("[Desktop Entry]", lines.first())
+        assertTrue("Exec=\"${Path.of("/opt/juxlauncher/bin/JuxLauncher")}\" %u" in lines)
+        assertTrue("MimeType=x-scheme-handler/juxlauncher;" in lines)
+        assertTrue("NoDisplay=true" in lines)
+        assertTrue(entry.endsWith("\n"))
     }
 }

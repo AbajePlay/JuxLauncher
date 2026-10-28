@@ -32,7 +32,10 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
 }
 
-val isWindows = System.getProperty("os.name").lowercase().contains("win")
+val hostOs = System.getProperty("os.name").lowercase()
+val isWindows = hostOs.contains("win")
+val isMac = hostOs.contains("mac")
+val isLinux = !isWindows && !isMac
 val copyrightLine = "Copyright © 2026 Jux"
 
 // Заставка обновления собирается в обычный exe и ставится вместе с лаунчером (app/resources), чтобы
@@ -105,7 +108,9 @@ compose.desktop {
         )
 
         nativeDistributions {
-            targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            // Пакет собирается только на своей системе: MSI и EXE на Windows, deb и rpm на Linux. DMG для macOS
+            // собирает packageMacDmg — с бесплатной подписью ad-hoc, без которой Mac на Apple Silicon не запустит приложение
+            targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "JuxLauncher"
             packageVersion = project.version.toString()
             vendor = "Jux"
@@ -138,6 +143,38 @@ compose.desktop {
                 upgradeUuid = "9F1D3B2A-7C4E-4E8B-9A21-5D6E8C0F3B71"
                 console = false
                 iconFile.set(project.file("branding/JuxLauncher.ico"))
+            }
+
+            macOS {
+                bundleID = "ru.jux.launcher"
+                dockName = "JuxLauncher"
+                appCategory = "public.app-category.games"
+                iconFile.set(project.file("branding/JuxLauncher.icns"))
+                // Ссылки juxlauncher:// с сайта macOS отдаёт приложению по этой записи, а не по реестру, как Windows
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>CFBundleURLTypes</key>
+                        <array>
+                            <dict>
+                                <key>CFBundleURLName</key>
+                                <string>ru.jux.launcher</string>
+                                <key>CFBundleURLSchemes</key>
+                                <array>
+                                    <string>juxlauncher</string>
+                                </array>
+                            </dict>
+                        </array>
+                    """.trimIndent()
+                }
+            }
+
+            linux {
+                packageName = "juxlauncher"
+                menuGroup = "Game"
+                appCategory = "games"
+                shortcut = true
+                rpmLicenseType = "GPLv3"
+                iconFile.set(project.file("branding/JuxLauncher.png"))
             }
         }
 
@@ -267,8 +304,10 @@ afterEvaluate {
     tasks.named("createRuntimeImage") {
         doLast {
             val image = layout.buildDirectory.dir("compose/tmp/main/runtime").get().asFile
-            val borrowed = image.resolve("bin/java.exe")
-            File(compose.desktop.application.javaHome, "bin/java.exe").copyTo(borrowed, overwrite = true)
+            val java = if (isWindows) "bin/java.exe" else "bin/java"
+            val borrowed = image.resolve(java)
+            File(compose.desktop.application.javaHome, java).copyTo(borrowed, overwrite = true)
+            borrowed.setExecutable(true)
             try {
                 val dump = ProcessBuilder(borrowed.absolutePath, "-Xshare:dump")
                     .redirectErrorStream(true)
@@ -278,7 +317,7 @@ afterEvaluate {
             } finally {
                 borrowed.delete()
             }
-            check(image.resolve("bin/server/classes.jsa").exists()) { "CDS dump produced no archive" }
+            check(image.resolve(if (isWindows) "bin/server/classes.jsa" else "lib/server/classes.jsa").exists()) { "CDS dump produced no archive" }
         }
     }
 
@@ -289,7 +328,9 @@ afterEvaluate {
         digest.digest().joinToString("") { "%02x".format(it) }.take(10)
     }
 
-    tasks.withType<AbstractJPackageTask>().configureEach {
+    // Свой архив классов JVM дописывает рядом с приложением. Так можно только на Windows: на macOS запись
+    // внутрь .app ломает подпись, а на Linux пакет стоит в /opt, куда игроку писать нельзя
+    if (isWindows) tasks.withType<AbstractJPackageTask>().configureEach {
         launcherJvmArgs.addAll(classArchiveKey.map { key ->
             listOf("-XX:SharedArchiveFile=\$APPDIR\\\\jux-$key.jsa", "-XX:+AutoCreateSharedArchive")
         })
@@ -297,6 +338,77 @@ afterEvaluate {
 
     tasks.named("prepareAppResources") { dependsOn(compileUpdateSplash) }
     tasks.named("createDistributable") { finalizedBy(deployDesktop) }
+}
+
+// Установщики под постоянными именами, без версии: на них ведут ссылки releases/latest/download/… с сайта и из лаунчера
+val releaseAssets = layout.buildDirectory.dir("release")
+val releaseApp = layout.buildDirectory.dir("compose/binaries/main-release/app")
+
+// Mac на Apple Silicon не запускает неподписанный код вовсе. Платный сертификат Apple не нужен: подпись ad-hoc
+// бесплатная, с ней macOS один раз спросит «Всё равно открыть», а дальше лаунчер запускается как обычно
+val packageMacDmg = tasks.register("packageMacDmg") {
+    group = "distribution"
+    description = "Signs the release app ad hoc and packs it with an Applications link into a DMG in build/release"
+    dependsOn("createReleaseDistributable")
+    onlyIf { isMac }
+    val arch = if (System.getProperty("os.arch") == "aarch64") "AppleSilicon" else "Intel"
+    val dmg = releaseAssets.map { it.file("JuxLauncher-macOS-$arch.dmg") }
+    outputs.file(dmg)
+    doLast {
+        val app = releaseApp.get().file("JuxLauncher.app").asFile
+        check(app.exists()) { "No app bundle at $app" }
+        runTool("xattr", "-cr", app.absolutePath)
+        runTool("codesign", "--force", "--deep", "--sign", "-", app.absolutePath)
+        runTool("codesign", "--verify", "--deep", "--strict", "--verbose=2", app.absolutePath)
+
+        val staging = temporaryDir.resolve("JuxLauncher")
+        forceDelete(staging)
+        staging.mkdirs()
+        runTool("ditto", app.absolutePath, staging.resolve("JuxLauncher.app").absolutePath)
+        runTool("ln", "-s", "/Applications", staging.resolve("Applications").absolutePath)
+        val out = dmg.get().asFile.also { it.parentFile.mkdirs(); it.delete() }
+        runTool(
+            "hdiutil", "create", "-volname", "JuxLauncher", "-srcfolder", staging.absolutePath,
+            "-fs", "HFS+", "-format", "UDZO", "-imagekey", "zlib-level=9", "-ov", out.absolutePath,
+        )
+        forceDelete(staging)
+        logger.lifecycle("macOS: $out")
+    }
+}
+
+tasks.register("packageReleaseAssets") {
+    group = "distribution"
+    description = "Builds this system's installers into build/release under the names the download links use"
+    when {
+        isWindows -> dependsOn("packageReleaseMsi")
+        isMac -> dependsOn(packageMacDmg)
+        else -> dependsOn("packageReleaseDeb", "packageReleaseRpm", "createReleaseDistributable")
+    }
+    doLast {
+        val out = releaseAssets.get().asFile.also { it.mkdirs() }
+        fun single(dir: String, extension: String): File =
+            layout.buildDirectory.dir("compose/binaries/main-release/$dir").get().asFile.listFiles().orEmpty()
+                .singleOrNull { it.extension == extension }
+                ?: throw GradleException("Expected one .$extension in build/compose/binaries/main-release/$dir")
+        when {
+            isWindows -> single("msi", "msi").copyTo(out.resolve("JuxLauncher.msi"), overwrite = true)
+            isLinux -> {
+                single("deb", "deb").copyTo(out.resolve("JuxLauncher-Linux.deb"), overwrite = true)
+                single("rpm", "rpm").copyTo(out.resolve("JuxLauncher-Linux.rpm"), overwrite = true)
+                // Для остальных дистрибутивов: распаковал и запустил JuxLauncher/bin/JuxLauncher. tar хранит права и ссылки
+                val tar = out.resolve("JuxLauncher-Linux.tar.gz").also { it.delete() }
+                runTool("tar", "-czf", tar.absolutePath, "-C", releaseApp.get().asFile.absolutePath, "JuxLauncher")
+            }
+        }
+        out.listFiles().orEmpty().sortedBy { it.name }.forEach { logger.lifecycle("${it.name}  ${it.length() / 1024 / 1024} MB") }
+    }
+}
+
+fun runTool(vararg command: String) {
+    val process = ProcessBuilder(*command).redirectErrorStream(true).start()
+    val output = process.inputStream.bufferedReader().readText()
+    if (process.waitFor() != 0) throw GradleException("${command.first()} failed:\n$output")
+    if (output.isNotBlank()) logger.info(output.trim())
 }
 
 tasks.register("scanWithDefender") {

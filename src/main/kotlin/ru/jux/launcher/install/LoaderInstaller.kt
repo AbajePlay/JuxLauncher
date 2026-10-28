@@ -78,8 +78,8 @@ object LoaderInstaller {
         }
     }
 
-    // Установщик OptiFine умеет ставить только в %APPDATA%\.minecraft: подсовываем ему временную папку
-    // с чистой версией, а готовый профиль и библиотеки переносим к себе
+    // Установщик OptiFine ставит только в папку официального лаунчера (%APPDATA%\.minecraft, на macOS и Linux —
+    // внутри домашней папки): подсовываем ему временную папку с чистой версией, а готовый профиль и библиотеки переносим к себе
     private suspend fun installOptiFine(
         gameVersion: String,
         edition: String,
@@ -109,7 +109,7 @@ object LoaderInstaller {
 
         val staging = Paths.cache.resolve("optifine-install")
         Storage.deleteTree(staging)
-        val minecraft = staging.resolve(".minecraft")
+        val minecraft = Paths.officialMinecraft(home = staging, appData = staging.toString())
         val stagedVersion = minecraft.resolve("versions").resolve(gameVersion).also { it.createDirectories() }
         Files.copy(Paths.versionJson(gameVersion), stagedVersion.resolve("$gameVersion.json"))
         Files.copy(Paths.versionJar(gameVersion), stagedVersion.resolve("$gameVersion.jar"))
@@ -118,7 +118,12 @@ object LoaderInstaller {
         onStage(tr("Устанавливаю OptiFine $edition", "Installing OptiFine $edition"))
         runJava(
             javaExecutable(),
-            listOf("-Djava.awt.headless=true", "-cp", installerJar.toAbsolutePath().toString(), "optifine.Installer"),
+            listOf(
+                "-Djava.awt.headless=true",
+                "-Duser.home=${staging.toAbsolutePath()}",
+                "-cp", installerJar.toAbsolutePath().toString(),
+                "optifine.Installer",
+            ),
             workDir = staging,
             log = installerJar.resolveSibling("optifine-output.log"),
             env = mapOf("APPDATA" to staging.toAbsolutePath().toString()),

@@ -27,7 +27,11 @@ object JavaManager {
 
     private const val MARKER = ".jux-runtime"
 
-    private fun runtimeDir(component: String): Path = Paths.runtimes.resolve(component)
+    private const val INTEL = "mac-os"
+
+    /** Java для Intel на Mac с Apple Silicon лежит отдельно: та же версия бывает нужна и в arm64-сборке. */
+    private fun runtimeDir(component: String, intel: Boolean = false): Path =
+        Paths.runtimes.resolve(if (intel) "$component-x64" else component)
 
     fun executableIn(dir: Path, env: RuleEnvironment = RuleEnvironment.current): Path = when (env.osName) {
         "windows" -> dir.resolve("bin/javaw.exe").takeIf { it.exists() } ?: dir.resolve("bin/java.exe")
@@ -35,24 +39,26 @@ object JavaManager {
         else -> dir.resolve("bin/java")
     }
 
-    fun isInstalled(component: String): Boolean {
-        val dir = runtimeDir(component)
+    fun isInstalled(component: String, intel: Boolean = false): Boolean {
+        val dir = runtimeDir(component, intel)
         return dir.resolve(MARKER).exists() && executableIn(dir).exists()
     }
 
     suspend fun ensure(
         component: String,
+        intel: Boolean = false,
         forceRecheck: Boolean = false,
         onProgress: (DownloadProgress) -> Unit = {},
     ): Path {
-        val dir = runtimeDir(component)
-        if (!forceRecheck && isInstalled(component)) {
-            Log.debug("runtime $component already installed")
+        val dir = runtimeDir(component, intel)
+        if (!forceRecheck && isInstalled(component, intel)) {
+            Log.debug("runtime $component${if (intel) " (Intel)" else ""} already installed")
             return executableIn(dir)
         }
 
-        val entry = findEntry(component)
-            ?: throw IOException("Mojang ships no '$component' runtime for ${JavaPlatform.key()}")
+        val platforms = if (intel) listOf(INTEL) else JavaPlatform.fallbacks()
+        val entry = findEntry(component, platforms)
+            ?: throw IOException("Mojang ships no '$component' runtime for ${platforms.first()}")
         val manifestRef = entry.manifest
             ?: throw IOException("runtime entry for $component has no manifest")
 
@@ -94,12 +100,12 @@ object JavaManager {
         return exe
     }
 
-    private fun findEntry(component: String): RuntimeEntry? {
+    private fun findEntry(component: String, platforms: List<String>): RuntimeEntry? {
         val all = runCatching {
             Json.decodeFromString<Map<String, Map<String, List<RuntimeEntry>>>>(Http.getString(ALL_URL))
         }.onFailure { Log.warn("could not read java runtime index: ${it.message}") }.getOrNull() ?: return null
 
-        for (platform in JavaPlatform.fallbacks()) {
+        for (platform in platforms) {
             val entry = all[platform]?.get(component)?.firstOrNull { it.manifest != null }
             if (entry != null) {
                 if (platform != JavaPlatform.key()) {
@@ -146,6 +152,14 @@ object JavaManager {
                     val dir = Path.of(base).resolve(vendor)
                     if (dir.isDirectory()) {
                         runCatching { addAll(dir.listDirectoryEntries().filter { it.isDirectory() }) }
+                    }
+                }
+            }
+            // Куда JDK ставят на macOS и в пакетах Linux
+            listOf(Path.of("/Library/Java/JavaVirtualMachines"), Path.of("/usr/lib/jvm")).filter { it.isDirectory() }.forEach { dir ->
+                runCatching {
+                    dir.listDirectoryEntries().filter { it.isDirectory() }.forEach { jdk ->
+                        add(jdk.resolve("Contents/Home").takeIf { it.isDirectory() } ?: jdk)
                     }
                 }
             }

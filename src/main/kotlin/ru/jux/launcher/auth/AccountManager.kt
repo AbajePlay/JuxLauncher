@@ -39,7 +39,7 @@ object AccountManager {
     private fun save() {
         runCatching {
             val store = AccountStore(_accounts.value, _selected.value?.uuid)
-            Paths.accountsFile.writeAtomically(PrettyJson.encodeToString(store))
+            Paths.accountsFile.writeAtomically(PrettyJson.encodeToString(store), ownerOnly = true)
         }.onFailure { Log.error("could not save accounts", it) }
     }
 

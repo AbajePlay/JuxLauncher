@@ -4,6 +4,7 @@ import kotlinx.serialization.encodeToString
 import ru.jux.launcher.activity.PlayHistory
 import ru.jux.launcher.core.Json
 import ru.jux.launcher.core.Log
+import ru.jux.launcher.core.Paths
 import ru.jux.launcher.core.Settings
 import ru.jux.launcher.core.Storage
 import ru.jux.launcher.core.tr
@@ -88,9 +89,7 @@ object CarryOver {
     private const val MAX_SOURCES = 6
     private const val PROGRESS_MILLIS = 100L
 
-    val officialDir: Path? = System.getenv("APPDATA")
-        ?.takeIf { it.isNotBlank() }
-        ?.let { Path.of(it).resolve(".minecraft") }
+    val officialDir: Path? = Paths.officialMinecraft()
 
     fun isFresh(gameDir: Path): Boolean =
         !gameDir.resolve(GameLauncher.GAME_LOG).exists() && !gameDir.resolve("logs").exists()

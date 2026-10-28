@@ -7,14 +7,21 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import ru.jux.launcher.core.Json
+import ru.jux.launcher.core.Shell
 import java.io.Closeable
+import java.io.EOFException
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.net.StandardProtocolFamily
+import java.net.UnixDomainSocketAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.channels.SocketChannel
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 
-class DiscordIpc private constructor(private val pipe: RandomAccessFile) : Closeable {
+class DiscordIpc private constructor(private val pipe: Pipe) : Closeable {
 
     fun setActivity(activity: JsonObject?): JsonObject = command("SET_ACTIVITY", buildJsonObject {
         put("pid", ProcessHandle.current().pid())
@@ -81,9 +88,9 @@ class DiscordIpc private constructor(private val pipe: RandomAccessFile) : Close
 
         fun connect(appId: String): DiscordIpc {
             var refused: IOException? = null
-            for (i in 0 until PIPES) {
+            for (address in addresses()) {
                 val pipe = try {
-                    RandomAccessFile("\\\\.\\pipe\\discord-ipc-$i", "rw")
+                    open(address)
                 } catch (e: IOException) {
                     continue
                 }
@@ -99,6 +106,62 @@ class DiscordIpc private constructor(private val pipe: RandomAccessFile) : Close
             throw refused ?: IOException("Discord не запущен")
         }
 
+        /** На Windows Discord слушает именованный канал, на macOS и Linux — Unix-сокет во временной папке. */
+        internal fun addresses(env: (String) -> String? = System::getenv, windows: Boolean = Shell.isWindows): List<String> {
+            if (windows) return (0 until PIPES).map { "\\\\.\\pipe\\discord-ipc-$it" }
+            val roots = listOf("XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP").mapNotNull { env(it)?.takeIf(String::isNotBlank) } + "/tmp"
+            // Discord из Flatpak и Snap кладёт сокет в свою подпапку
+            val flavours = listOf("", "app/com.discordapp.Discord", "snap.discord", ".flatpak/dev.vencord.Vesktop/xdg-run")
+            return roots.distinct()
+                .flatMap { root -> flavours.map { Path.of(root, it) } }
+                .flatMap { dir -> (0 until PIPES).map { dir.resolve("discord-ipc-$it").toString() } }
+                .distinct()
+        }
+
+        private fun open(address: String): Pipe =
+            if (Shell.isWindows) WindowsPipe(RandomAccessFile(address, "rw")) else UnixPipe.open(Path.of(address))
+
         private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+    }
+}
+
+private interface Pipe : Closeable {
+    fun write(bytes: ByteArray)
+    fun readFully(bytes: ByteArray)
+}
+
+private class WindowsPipe(private val file: RandomAccessFile) : Pipe {
+    override fun write(bytes: ByteArray) = file.write(bytes)
+    override fun readFully(bytes: ByteArray) = file.readFully(bytes)
+    override fun close() = file.close()
+}
+
+private class UnixPipe(private val channel: SocketChannel) : Pipe {
+    override fun write(bytes: ByteArray) {
+        val buffer = ByteBuffer.wrap(bytes)
+        while (buffer.hasRemaining()) channel.write(buffer)
+    }
+
+    override fun readFully(bytes: ByteArray) {
+        val buffer = ByteBuffer.wrap(bytes)
+        while (buffer.hasRemaining()) {
+            if (channel.read(buffer) < 0) throw EOFException("Discord закрыл сокет")
+        }
+    }
+
+    override fun close() = channel.close()
+
+    companion object {
+        fun open(path: Path): UnixPipe {
+            if (!Files.exists(path)) throw IOException("нет сокета $path")
+            val channel = SocketChannel.open(StandardProtocolFamily.UNIX)
+            try {
+                channel.connect(UnixDomainSocketAddress.of(path))
+            } catch (e: IOException) {
+                channel.close()
+                throw e
+            }
+            return UnixPipe(channel)
+        }
     }
 }

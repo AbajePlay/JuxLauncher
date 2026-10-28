@@ -1534,7 +1534,7 @@ class LauncherState(
     fun installUpdate(update: UpdateManifest) {
         scope.launch {
             runCatching { Updater.install(update) }
-                .onSuccess { onQuit() }
+                .onSuccess { started -> if (started) onQuit() }
                 .onFailure { if (it !is CancellationException) fail(it.message, title = tr("Обновление не установилось", "Update failed to install")) }
         }
     }

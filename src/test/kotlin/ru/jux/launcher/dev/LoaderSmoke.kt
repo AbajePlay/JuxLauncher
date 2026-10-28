@@ -15,7 +15,8 @@ import kotlin.io.path.exists
 import kotlin.io.path.writeText
 import kotlin.system.exitProcess
 
-private val READY = listOf("Sound engine started", "OpenAL initialized")
+// Без звуковой карты (CI) звук не стартует, поэтому годится и собранный атлас текстур: меню уже рисуется
+private val READY = listOf("Sound engine started", "OpenAL initialized", "blocks.png-atlas", "textures-atlas")
 private val CRASHED = listOf("Crash report saved", "Game crashed", "Exception in thread \"main\"")
 private val TIMEOUT_MILLIS = TimeUnit.MINUTES.toMillis(8)
 

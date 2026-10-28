@@ -25,6 +25,7 @@ import ru.jux.launcher.net.Downloader
 import ru.jux.launcher.net.ProgressMerger
 import ru.jux.launcher.runtime.JavaComponents
 import ru.jux.launcher.runtime.JavaManager
+import ru.jux.launcher.runtime.JavaPlatform
 import ru.jux.launcher.servers.ServerList
 
 data class LaunchResult(val process: Process, val gameDir: Path, val logFile: Path)
@@ -111,7 +112,12 @@ object GameLauncher {
 
         return coroutineScope {
             val java = async {
-                resolveJava(baseVersion.javaVersion?.component, baseVersion.javaVersion?.majorVersion, progress.sink("java"))
+                resolveJava(
+                    baseVersion.javaVersion?.component,
+                    baseVersion.javaVersion?.majorVersion,
+                    intel = JavaPlatform.needsIntel(baseVersion.libraries.map { it.name }),
+                    onProgress = progress.sink("java"),
+                )
             }
             val awaitJava: suspend () -> Path = {
                 if (!java.isCompleted) onStage(tr("Докачиваю Java", "Finishing the Java download"))
@@ -186,15 +192,27 @@ object GameLauncher {
     private suspend fun resolveJava(
         component: String?,
         majorVersion: Int?,
+        intel: Boolean,
         onProgress: (DownloadProgress) -> Unit,
     ): Path {
         val wanted = component ?: JavaComponents.forMajor(majorVersion ?: 8)
         val major = majorVersion ?: 8
+        if (intel && !JavaPlatform.hasRosetta) {
+            throw IOException(
+                tr(
+                    "Этой версии Minecraft на Mac с Apple Silicon нужна Rosetta 2. " +
+                        "Открой «Терминал», выполни softwareupdate --install-rosetta и запусти игру снова",
+                    "This Minecraft version needs Rosetta 2 on an Apple Silicon Mac. " +
+                        "Open Terminal, run softwareupdate --install-rosetta and start the game again",
+                )
+            )
+        }
 
-        runCatching { return JavaManager.ensure(wanted, onProgress = onProgress) }
+        runCatching { return JavaManager.ensure(wanted, intel, onProgress = onProgress) }
             .onFailure { Log.warn("could not install runtime $wanted: ${it.message}") }
 
-        JavaManager.findLocal(major)?.let { return it }
+        // Своя Java подходит, только если совпадает с нужной архитектурой: на Apple Silicon она почти всегда arm64
+        if (!intel) JavaManager.findLocal(major)?.let { return it }
 
         throw IOException(
             tr(

@@ -58,6 +58,20 @@ object JavaPlatform {
     fun fallbacks(env: RuleEnvironment = RuleEnvironment.current): List<String> = when (key(env)) {
         "windows-arm64" -> listOf("windows-arm64", "windows-x64", "windows-x86")
         "windows-x64" -> listOf("windows-x64", "windows-x86")
+        // Java 8 и 16 для Apple Silicon Mojang не собирает: берём сборку для Intel, её запускает Rosetta 2
+        "mac-os-arm64" -> listOf("mac-os-arm64", "mac-os")
         else -> listOf(key(env))
     }
+
+    /**
+     * Mac на Apple Silicon: у версий до 1.19 библиотеки LWJGL есть только для Intel, и arm64-Java их не загрузит.
+     * Таким версиям нужна Java для Intel, тогда вся игра идёт через Rosetta 2, как в официальном лаунчере.
+     */
+    fun needsIntel(libraries: List<String>, env: RuleEnvironment = RuleEnvironment.current): Boolean =
+        env.osName == "osx" && env.osArch == "arm64" &&
+            libraries.any { it.startsWith("org.lwjgl") } &&
+            libraries.none { "natives-macos-arm64" in it || "natives-osx-arm64" in it }
+
+    /** Rosetta 2 ставится отдельно, и без неё Java для Intel не запустится вовсе. */
+    val hasRosetta: Boolean get() = java.nio.file.Files.exists(java.nio.file.Path.of("/Library/Apple/usr/share/rosetta/rosetta"))
 }

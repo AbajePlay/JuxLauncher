@@ -95,7 +95,15 @@ object Updater {
         }
     }
 
-    suspend fun install(update: UpdateManifest) {
+    /** true — установщик запущен и лаунчеру пора закрыться. */
+    suspend fun install(update: UpdateManifest): Boolean {
+        if (!Shell.isWindows) {
+            // На macOS и Linux новую версию ставит сам игрок: открываем в браузере загрузку его файла
+            if (!Shell.browse(Downloads.forThisComputer())) {
+                throw IOException(tr("Не открылся браузер — скачай ${update.version} на ${Downloads.PAGE}", "Could not open the browser — download ${update.version} at ${Downloads.PAGE}"))
+            }
+            return false
+        }
         try {
             val app = Shell.appExecutable
                 ?: throw IOException(tr("Обновление ставится только в установленный лаунчер, не при запуске из IDE", "Updates install only into the installed launcher, not when run from an IDE"))
@@ -103,6 +111,7 @@ object Updater {
             withContext(Dispatchers.IO) { verifySignature(file, app) }
             _state.value = UpdateState.Installing(update)
             startInstaller(file, app, update.version)
+            return true
         } catch (e: CancellationException) {
             _state.value = UpdateState.Available(update)
             throw e

@@ -1,0 +1,154 @@
+# Сборки для macOS и Linux. На своей системе их не собрать: jpackage пакует только под ту ОС, где запущен.
+# Windows-установщик по-прежнему собирается локально (packageReleaseAssets) и заливается в релиз руками.
+name: macOS and Linux
+
+on:
+  push:
+    branches: [main, crossplatform]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS-AppleSilicon
+            runner: macos-15
+            # 1.16.5 на Apple Silicon идёт через Java для Intel и Rosetta 2
+            games: 1.21.1:vanilla,1.16.5:vanilla
+          - name: macOS-Intel
+            runner: macos-15-intel
+            games: 1.21.1:vanilla,1.12.2:vanilla
+          - name: Linux
+            # Старая glibc — пакет запустится и на дистрибутивах постарше
+            runner: ubuntu-22.04
+            games: 1.21.1:vanilla,1.12.2:vanilla,1.20.1:fabric
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Linux tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq rpm fakeroot xvfb imagemagick libgl1-mesa-dri
+
+      - name: Tests
+        run: |
+          chmod +x gradlew
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a ./gradlew test --console=plain; else ./gradlew test --console=plain; fi
+
+      - name: Installers
+        run: ./gradlew packageReleaseAssets --console=plain
+
+      - name: Check the macOS bundle
+        if: runner.os == 'macOS'
+        run: |
+          dmg=$(ls build/release/*.dmg)
+          mount=$(hdiutil attach -nobrowse "$dmg" | awk -F'\t' '/\/Volumes\//{print $NF}')
+          ls -la "$mount"
+          ditto "$mount/JuxLauncher.app" /Applications/JuxLauncher.app
+          hdiutil detach "$mount"
+          codesign -dv /Applications/JuxLauncher.app 2>&1 | tee build/release-check.txt
+          grep -q "Signature=adhoc" build/release-check.txt
+          codesign --verify --deep --strict /Applications/JuxLauncher.app
+          lipo -archs /Applications/JuxLauncher.app/Contents/MacOS/JuxLauncher
+          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" /Applications/JuxLauncher.app/Contents/Info.plist
+          spctl --assess --type execute -vv /Applications/JuxLauncher.app || echo "Gatekeeper: unsigned by Apple, as expected"
+
+      - name: Check the Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          dpkg-deb --info build/release/JuxLauncher-Linux.deb
+          rpm -qpi build/release/JuxLauncher-Linux.rpm
+          sudo apt-get install -yq ./build/release/JuxLauncher-Linux.deb
+          ls -la /opt/juxlauncher/bin /opt/juxlauncher/lib
+          cat /opt/juxlauncher/lib/*.desktop || find / -name "juxlauncher*.desktop" 2>/dev/null
+          mkdir -p "$RUNNER_TEMP/tar" && tar -xzf build/release/JuxLauncher-Linux.tar.gz -C "$RUNNER_TEMP/tar"
+          test -x "$RUNNER_TEMP/tar/JuxLauncher/bin/JuxLauncher"
+
+      - name: Start the installed launcher
+        run: |
+          mkdir -p build/smoke
+          if [ "$RUNNER_OS" = macOS ]; then
+            app=/Applications/JuxLauncher.app/Contents/MacOS/JuxLauncher
+            "$app" > build/smoke/launcher-out.txt 2>&1 &
+          else
+            app=/opt/juxlauncher/bin/JuxLauncher
+            Xvfb :99 -screen 0 1440x900x24 & sleep 2
+            DISPLAY=:99 "$app" > build/smoke/launcher-out.txt 2>&1 &
+          fi
+          pid=$!
+          for i in $(seq 1 90); do
+            grep -qs "launcher ready" ~/.jux/logs/*.log && break
+            kill -0 $pid 2>/dev/null || break
+            sleep 1
+          done
+          sleep 5
+          if [ "$RUNNER_OS" = macOS ]; then screencapture -x build/smoke/launcher.png; else DISPLAY=:99 import -window root build/smoke/launcher.png; fi
+          cp ~/.jux/logs/*.log build/smoke/ 2>/dev/null || true
+          kill -0 $pid
+          grep -h "launcher ready" ~/.jux/logs/*.log
+          ! grep -hF "[ERROR]" ~/.jux/logs/*.log
+          kill $pid
+
+      - name: Start the game
+        continue-on-error: true
+        run: |
+          home="$RUNNER_TEMP/smoke-home"
+          if [ "$RUNNER_OS" = Linux ]; then
+            export LIBGL_ALWAYS_SOFTWARE=1
+            xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew smokeLoaders "-Ptargets=${{ matrix.games }}" "-PsmokeHome=$home" --console=plain
+          else
+            ./gradlew smokeLoaders "-Ptargets=${{ matrix.games }}" "-PsmokeHome=$home" --console=plain
+          fi
+
+      - name: Keep game logs
+        if: always()
+        run: |
+          mkdir -p build/smoke/games
+          find "$RUNNER_TEMP/smoke-home/.jux" -name "latest-game.log" 2>/dev/null | while read -r log; do
+            cp "$log" "build/smoke/games/$(basename "$(dirname "$log")").log"
+          done
+          cp "$RUNNER_TEMP"/smoke-home/.jux/logs/*.log build/smoke/games/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JuxLauncher-${{ matrix.name }}
+          path: build/release/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.name }}
+          path: |
+            build/smoke
+            build/reports/tests
+            build/release-check.txt
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" build/release/* --clobber

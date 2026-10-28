@@ -3,6 +3,9 @@ package ru.jux.launcher.core
 import com.sun.jna.Native
 import com.sun.jna.win32.StdCallLibrary
 import kotlinx.coroutines.channels.Channel
+import java.awt.Desktop
+import java.awt.desktop.AppReopenedListener
+import java.awt.desktop.QuitResponse
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -46,6 +49,29 @@ class SingleInstance(dir: Path) {
             Thread.sleep(100)
         }
         return Role.UNREACHABLE
+    }
+
+    /**
+     * На macOS повторный запуск и ссылки juxlauncher:// не стартуют второй процесс: система шлёт событие уже
+     * запущенному лаунчеру. Переводим их в те же запросы, что приходят от второго запуска на Windows.
+     */
+    fun listenToSystem(onQuit: () -> Unit) {
+        if (!Shell.isMac) return
+        runCatching {
+            val desktop = Desktop.getDesktop()
+            if (desktop.isSupported(Desktop.Action.APP_OPEN_URI)) {
+                desktop.setOpenURIHandler { requests.trySend(listOf(it.uri.toString())) }
+            }
+            if (desktop.isSupported(Desktop.Action.APP_EVENT_REOPENED)) {
+                desktop.addAppEventListener(AppReopenedListener { requests.trySend(emptyList()) })
+            }
+            if (desktop.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
+                desktop.setQuitHandler { _, response: QuitResponse ->
+                    onQuit()
+                    response.performQuit()
+                }
+            }
+        }.onFailure { Log.warn("macOS app events unavailable: ${it.message}") }
     }
 
     fun close() {
@@ -117,7 +143,7 @@ class SingleInstance(dir: Path) {
     }
 
     private fun allowForeground(pid: Int) {
-        if (!System.getProperty("os.name").orEmpty().lowercase().contains("win")) return
+        if (!Shell.isWindows) return
         runCatching { Native.load("user32", ForegroundApi::class.java).AllowSetForegroundWindow(pid) }
     }
 }

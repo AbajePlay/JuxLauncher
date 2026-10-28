@@ -10,6 +10,9 @@ WORDMARK_SIZE = (624, 104)
 
 WINDOW_ICON_SIZES = [16, 20, 24, 32, 40, 48, 64]
 ICO_SIZES = WINDOW_ICON_SIZES + [256]
+LINUX_ICON_SIZE = 512
+# Сетка иконок macOS: плитка 824 px по центру холста 1024 px, вокруг поле под тень Dock
+MAC_CANVAS, MAC_TILE = 1024, 824
 
 TILE_TOP = (0x26, 0x2B, 0x37)
 TILE_BOTTOM = (0x12, 0x14, 0x19)
@@ -107,6 +110,15 @@ def tile_icon(glyph: Image.Image, size: int) -> Image.Image:
     return tile
 
 
+def platform_icons(glyph: Image.Image) -> None:
+    tile_icon(glyph, LINUX_ICON_SIZE).save(BRANDING / "JuxLauncher.png", optimize=True)
+
+    mac = Image.new("RGBA", (MAC_CANVAS, MAC_CANVAS), (0, 0, 0, 0))
+    offset = (MAC_CANVAS - MAC_TILE) // 2
+    mac.alpha_composite(tile_icon(glyph, MAC_TILE), (offset, offset))
+    mac.save(BRANDING / "JuxLauncher.icns")
+
+
 def main() -> None:
     logo = load_logo()
     RESOURCES.mkdir(parents=True, exist_ok=True)
@@ -122,7 +134,8 @@ def main() -> None:
         sizes=[(size, size) for size in ICO_SIZES],
         append_images=[icons[size] for size in ICO_SIZES if size != 256],
     )
-    print(f"wordmark {WORDMARK_SIZE}, J glyph {glyph.size}, icons {ICO_SIZES}")
+    platform_icons(glyph)
+    print(f"wordmark {WORDMARK_SIZE}, J glyph {glyph.size}, icons {ICO_SIZES}, macOS and Linux icons")
 
 
 if __name__ == "__main__":

@@ -12,7 +12,18 @@ import kotlin.system.exitProcess
 
 object Shell {
 
-    val isWindows: Boolean = System.getProperty("os.name").orEmpty().lowercase().contains("win")
+    private val osName = System.getProperty("os.name").orEmpty().lowercase()
+    val isWindows: Boolean = osName.contains("win")
+    val isMac: Boolean = osName.contains("mac") || osName.contains("darwin")
+    val isLinux: Boolean = !isWindows && !isMac
+
+    /** Чем на этой системе снимают зависший процесс — для подсказок игроку. */
+    val taskManager: String
+        get() = when {
+            isWindows -> tr("диспетчере задач", "Task Manager")
+            isMac -> tr("Мониторинге системы", "Activity Monitor")
+            else -> tr("системном мониторе", "the system monitor")
+        }
 
     val appExecutable: Path? by lazy {
         System.getProperty("jpackage.app-path")
@@ -29,12 +40,8 @@ object Shell {
             }
 
         val path = dir.toAbsolutePath().toString()
-        if (isWindows) {
-            val started = runCatching { ProcessBuilder("explorer.exe", path).start() }
-                .onFailure { Log.warn("explorer.exe failed: ${it.message}") }
-                .isSuccess
-            if (started) return
-        }
+        if (isWindows && start("explorer.exe", path)) return
+        if (isMac && start("open", path)) return
 
         val viaDesktop = runCatching {
             if (!Desktop.isDesktopSupported()) return@runCatching false
@@ -43,9 +50,17 @@ object Shell {
             desktop.open(dir.toFile())
             true
         }.onFailure { Log.warn("Desktop.open failed: ${it.message}") }.getOrDefault(false)
+        if (viaDesktop) return
+        // На Linux Desktop работает не во всех окружениях, а xdg-open есть почти везде
+        if (isLinux && start("xdg-open", path)) return
 
-        if (!viaDesktop) onError(tr("Не удалось открыть проводник. Папка: $dir", "Could not open Explorer. Folder: $dir"))
+        onError(tr("Не удалось открыть папку $dir", "Could not open the folder $dir"))
     }
+
+    private fun start(vararg command: String): Boolean =
+        runCatching { ProcessBuilder(*command).start() }
+            .onFailure { Log.warn("${command.first()} failed: ${it.message}") }
+            .isSuccess
 
     /** Открывает в браузере только http(s): ShellExecute по произвольной строке мог бы запустить файл. */
     fun browse(url: String): Boolean {
@@ -59,7 +74,8 @@ object Shell {
                 return true
             }
         }.onFailure { Log.debug("Desktop.browse failed: ${it.message}") }
-        if (!isWindows) return false
+        if (isMac) return start("open", url)
+        if (isLinux) return start("xdg-open", url)
         return runCatching {
             val result = Shell32.INSTANCE.ShellExecute(null, "open", url, null, null, WinUser.SW_SHOWNORMAL)
             (result?.toLong() ?: 0L) > 32

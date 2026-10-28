@@ -49,6 +49,7 @@ fun main(args: Array<String>) {
     val instance = bootstrap(args)
     val playRequest = PlayArguments.parse(args)?.also { Log.info("asked to start ${it.versionId} (${it.loader})") }
     val link = LaunchLink.find(args.toList())?.also { Log.info("opened by a link: $it") }
+    instance.listenToSystem(onQuit = ::shutdownAndExit)
 
     application {
         LaunchedEffect(Unit) { awaitCancellation() }
@@ -208,7 +209,7 @@ private fun bootstrap(args: Array<String>): SingleInstance {
         SingleInstance.Role.UNREACHABLE -> {
             JOptionPane.showMessageDialog(
                 null,
-                tr("JuxLauncher завис.\nЗакрой его в диспетчере задач и запусти снова.", "JuxLauncher is not responding.\nClose it in Task Manager and start it again."),
+                tr("JuxLauncher завис.\nЗакрой его в ${Shell.taskManager} и запусти снова.", "JuxLauncher is not responding.\nClose it in ${Shell.taskManager} and start it again."),
                 "JuxLauncher",
                 JOptionPane.WARNING_MESSAGE,
             )

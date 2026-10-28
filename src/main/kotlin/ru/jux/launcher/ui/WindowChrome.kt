@@ -9,6 +9,7 @@ import ru.jux.launcher.core.Shell
 import ru.jux.launcher.ui.components.Brand
 import ru.jux.launcher.ui.theme.JuxColors
 import java.awt.Window
+import javax.swing.RootPaneContainer
 
 private interface Dwmapi : StdCallLibrary {
     fun DwmSetWindowAttribute(hwnd: Pointer, attribute: Int, value: IntByReference, size: Int): Int
@@ -23,6 +24,14 @@ object WindowChrome {
     private const val TEXT_COLOR = 36
 
     fun applyTheme(window: Window) {
+        if (Shell.isMac) {
+            // Заголовок окна macOS светлый или тёмный вслед за темой лаунчера, а не системы
+            (window as? RootPaneContainer)?.rootPane?.putClientProperty(
+                "apple.awt.windowAppearance",
+                if (JuxColors.isDark) "NSAppearanceNameDarkAqua" else "NSAppearanceNameAqua",
+            )
+            return
+        }
         if (!Shell.isWindows) return
         runCatching {
             val hwnd = Native.getComponentPointer(window) ?: return
