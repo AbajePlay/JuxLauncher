@@ -5,7 +5,6 @@ import com.sun.jna.win32.StdCallLibrary
 import kotlinx.coroutines.channels.Channel
 import java.awt.Desktop
 import java.awt.desktop.AppReopenedListener
-import java.awt.desktop.QuitResponse
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -65,11 +64,9 @@ class SingleInstance(dir: Path) {
             if (desktop.isSupported(Desktop.Action.APP_EVENT_REOPENED)) {
                 desktop.addAppEventListener(AppReopenedListener { requests.trySend(emptyList()) })
             }
+            // Cmd+Q: сохраняемся, как при закрытии окна. Выходим не в потоке AppKit — exit там может застрять
             if (desktop.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
-                desktop.setQuitHandler { _, response: QuitResponse ->
-                    onQuit()
-                    response.performQuit()
-                }
+                desktop.setQuitHandler { _, _ -> thread(name = "quit") { onQuit() } }
             }
         }.onFailure { Log.warn("macOS app events unavailable: ${it.message}") }
     }

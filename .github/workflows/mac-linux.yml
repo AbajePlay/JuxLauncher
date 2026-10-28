@@ -61,6 +61,12 @@ jobs:
       - name: Installers
         run: ./gradlew packageReleaseAssets --console=plain
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JuxLauncher-${{ matrix.name }}
+          path: build/release/*
+          if-no-files-found: error
+
       - name: Check the macOS bundle
         if: runner.os == 'macOS'
         run: |
@@ -81,6 +87,9 @@ jobs:
         run: |
           dpkg-deb --info build/release/JuxLauncher-Linux.deb
           rpm -qpi build/release/JuxLauncher-Linux.rpm
+          # Пакет вносит лаунчер в меню через xdg-desktop-menu. На образе без рабочего стола нет каталога меню,
+          # и установка падает; у игрока с рабочим столом (GNOME, KDE, Cinnamon, Xfce) он есть всегда
+          sudo mkdir -p /etc/xdg/menus/applications-merged /usr/share/applications /usr/share/desktop-directories
           sudo apt-get install -yq ./build/release/JuxLauncher-Linux.deb
           ls -la /opt/juxlauncher/bin /opt/juxlauncher/lib
           cat /opt/juxlauncher/lib/*.desktop || find / -name "juxlauncher*.desktop" 2>/dev/null
@@ -131,12 +140,6 @@ jobs:
             cp "$log" "build/smoke/games/$(basename "$(dirname "$log")").log"
           done
           cp "$RUNNER_TEMP"/smoke-home/.jux/logs/*.log build/smoke/games/ 2>/dev/null || true
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: JuxLauncher-${{ matrix.name }}
-          path: build/release/*
-          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: always()
