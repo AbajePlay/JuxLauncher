@@ -161,13 +161,15 @@ object ServerList {
         if (read == null && !repair) return false
         val root = read ?: if (missing) Nbt.CompoundTag(emptyMap()) else recover(gameDir)
         val servers = (root.entries["servers"] as? Nbt.ListTag)?.items.orEmpty().filterIsInstance<Nbt.CompoundTag>()
-        val ours = defaults.map { normalize(it.address) }.toSet()
+        val ours = defaults.flatMap(::addressesOf).toSet()
         val pinned = defaults.map { server ->
-            val matching = servers.filter { addressOf(it)?.let(::normalize) == normalize(server.address) }
+            val addresses = addressesOf(server)
+            val matching = servers.filter { addressOf(it)?.let(::normalize) in addresses }
             val kept = matching.firstOrNull { !isHidden(it) } ?: matching.firstOrNull()
                 ?: return@map Nbt.CompoundTag(linkedMapOf("name" to Nbt.StringTag(server.name), "ip" to Nbt.StringTag(server.address)))
             val shown = if (isHidden(kept)) mapOf("hidden" to Nbt.ByteTag(0)) else emptyMap()
-            Nbt.CompoundTag(kept.entries + ("name" to Nbt.StringTag(server.name)) + shown)
+            val moved = if (addressOf(kept)?.let(::normalize) != addresses.first()) mapOf("ip" to Nbt.StringTag(server.address)) else emptyMap()
+            Nbt.CompoundTag(kept.entries + ("name" to Nbt.StringTag(server.name)) + shown + moved)
         }
         val updated = pinned + servers.filter { addressOf(it)?.let(::normalize) !in ours }
         if (read != null && (updated == servers || stampOf(file) != stamp)) return false
@@ -262,7 +264,7 @@ object ServerList {
         runCatching { Files.readAttributes(file, BasicFileAttributes::class.java) }.getOrNull()?.let { Stamp(it.lastModifiedTime(), it.size()) }
 
     private fun missing(from: Path, into: Path): List<Nbt.CompoundTag> {
-        val known = (entries(into).mapNotNull(::addressOf) + Servers.all.map { it.address }).map(::normalize).toSet()
+        val known = entries(into).mapNotNull(::addressOf).map(::normalize).toSet() + Servers.all.flatMap(::addressesOf)
         return entries(from)
             .filter { !isHidden(it) }
             .filter { server -> addressOf(server)?.let(::normalize)?.let { it.isNotEmpty() && it !in known } == true }
@@ -276,6 +278,8 @@ object ServerList {
     }
 
     private fun addressOf(server: Nbt.CompoundTag): String? = (server.entries["ip"] as? Nbt.StringTag)?.value
+
+    private fun addressesOf(server: ServerEntry): List<String> = (listOf(server.address) + server.formerly).map(::normalize)
 
     private fun isHidden(server: Nbt.CompoundTag): Boolean =
         ((server.entries["hidden"] as? Nbt.ByteTag)?.value ?: 0).toInt() != 0

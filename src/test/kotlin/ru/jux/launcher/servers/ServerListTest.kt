@@ -103,6 +103,27 @@ class ServerListTest {
     }
 
     @Test
+    fun `an entry under a former address moves to the new one with its fields`(@TempDir dir: Path) {
+        val moved = listOf(ServerEntry("VirtusMine", "jux.virtusmine.fun", formerly = listOf("mc.virtusmine.fun")))
+        save(dir, server("Мой", "play.example.org"), server("VirtusMine", "MC.VirtusMine.fun:25565", "icon" to Nbt.StringTag("iVBORw0KGgo=")))
+
+        assertTrue(ServerList.pin(dir, moved, repair = true))
+        val list = servers(dir)
+        assertEquals(listOf("jux.virtusmine.fun", "play.example.org"), list.map { it.text("ip") })
+        assertEquals(Nbt.StringTag("iVBORw0KGgo="), list[0]["icon"])
+        assertFalse(ServerList.pin(dir, moved, repair = true))
+    }
+
+    @Test
+    fun `old and new addresses together leave one entry`(@TempDir dir: Path) {
+        val moved = listOf(ServerEntry("VirtusMine", "jux.virtusmine.fun", formerly = listOf("mc.virtusmine.fun")))
+        save(dir, server("Старый", "mc.virtusmine.fun"), server("Мой", "play.example.org"), server("Новый", "jux.virtusmine.fun"))
+
+        assertTrue(ServerList.pin(dir, moved, repair = true))
+        assertEquals(listOf("jux.virtusmine.fun", "play.example.org"), servers(dir).map { it.text("ip") })
+    }
+
+    @Test
     fun `the server is always there, even after the player removes it`(@TempDir dir: Path) {
         ServerList.seedDefaults(dir, virtus)
         assertEquals(1, servers(dir).size)
